@@ -13,6 +13,9 @@ class Cutter:
     max_depth      : maximum penetration depth perpendicular to the cutter [mm].
     max_tilt       : maximum tilt angle from the surface normal [rad].
     cutting_speed  : speed while cutting through material (plasma on) [mm/s].
+    max_cutting_speed : upper limit for cutting_speed [mm/s]. None = unbegrenzt
+                     (rueckwaertskompatibel). Wird von der Segment-Simulation
+                     gesetzt, da dort L(v) von der Geschwindigkeit abhaengt.
     moving_speed   : speed while traversing near geometry without cutting (plasma off) [mm/s].
     rapid_speed    : repositioning speed through free air (Eilgang) [mm/s].
     minimum_gap    : minimum distance between TCP and material surface [mm].
@@ -26,14 +29,21 @@ class Cutter:
         max_depth: float = 20.0,
         max_tilt: float = np.radians(20),
         cutting_speed: float = 5.0,
+        max_cutting_speed: float | None = None,
         moving_speed: float = 20.0,
         rapid_speed: float = 50.0,
         minimum_gap: float = 3.0,
         assumptions: CuttingAssumptions | None = None,
     ) -> None:
+        if max_cutting_speed is not None and cutting_speed > max_cutting_speed:
+            raise ValueError(
+                f"cutting_speed = {cutting_speed} mm/s ueberschreitet "
+                f"max_cutting_speed = {max_cutting_speed} mm/s."
+            )
         self.max_depth = max_depth
         self.max_tilt = max_tilt
         self.cutting_speed = cutting_speed
+        self.max_cutting_speed = max_cutting_speed
         self.moving_speed = moving_speed
         self.rapid_speed = rapid_speed
         self.minimum_gap = minimum_gap

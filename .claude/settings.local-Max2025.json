@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/c/Users/maxlm/OneDrive - Students RWTH Aachen University/IGMR/plasma_cutter/.venv/Scripts/python.exe:*)",
+      "Bash(\"/c/Users/maxlm/OneDrive - Students RWTH Aachen University/IGMR/plasma_cutter/.venv/Scripts/python.exe\" -m pip uninstall plasma_cutter -y)",
+      "Read(//c/Users/maxlm/OneDrive - Students RWTH Aachen University/IGMR/**)",
+      "Bash(python -c ':*)",
+      "Bash(python -m plasma_cutter.rl.baseline)",
+      "Bash(python -c \"import py_compile; [py_compile.compile\\('plasma_cutter/rl/'+f, doraise=True\\) for f in ['baseline.py','env.py','mdp.py','sanity.py','train_general.py']]; print\\('OK'\\)\")",
+      "Bash(python -m plasma_cutter.rl.sanity)",
+      "Bash(python -c \"import torch; print\\('torch', torch.__version__\\); print\\('cuda', torch.cuda.is_available\\(\\)\\); print\\('device', torch.cuda.get_device_name\\(0\\) if torch.cuda.is_available\\(\\) else 'CPU'\\)\")",
+      "Bash(ls .venv/Scripts/python.exe)",
+      "Bash(.venv/Scripts/python.exe -c \"import sys; print\\(sys.executable\\); import torch; print\\(torch.__version__\\)\")",
+      "Bash(.venv/Scripts/python.exe -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu128 torch torchvision)",
+      "Bash(.venv/Scripts/python.exe -c \"import torch; print\\('torch', torch.__version__\\); print\\('cuda available:', torch.cuda.is_available\\(\\)\\); print\\('cuda runtime:', torch.version.cuda\\); print\\('device:', torch.cuda.get_device_name\\(0\\) if torch.cuda.is_available\\(\\) else 'CPU'\\); print\\('capability:', torch.cuda.get_device_capability\\(0\\) if torch.cuda.is_available\\(\\) else None\\); x=torch.randn\\(1024,1024,device='cuda'\\); print\\('matmul ok:', \\(x@x\\).sum\\(\\).item\\(\\) != 0\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import stable_baselines3, gymnasium; print\\('sb3', stable_baselines3.__version__\\); print\\('gym', gymnasium.__version__\\)\")",
+      "Bash(.venv/Scripts/python.exe -c ':*)",
+      "Read(//c/Users/maxlm/AppData/Local/Programs/Python/**)",
+      "Read(//c/Users/Max/AppData/Local/Programs/**)",
+      "Bash(\"C:/Users/maxlm/OneDrive - Students RWTH Aachen University/IGMR/plasma_cutter/.venv/Scripts/python.exe\" -c \"import sys; print\\(sys.executable\\); print\\(sys.base_executable\\); print\\(sys.base_prefix\\)\")",
+      "Bash(C:/Users/maxlm/OneDrive - Students RWTH Aachen University/IGMR/plasma_cutter/.venv/Scripts/python.exe:*)",
+      "Bash(mkdir -p \"C:/Users/maxlm/OneDrive - Students RWTH Aachen University/IGMR/plasma_cutter/rl/logs\")",
+      "Bash(.venv/Scripts/python.exe -m plasma_cutter.rl.train)",
+      "Bash(./plasma_cutter/.venv/Scripts/python.exe -m plasma_cutter.rl.sanity)",
+      "Bash(.venv/Scripts/python.exe -c \"import sys; print\\(sys.version\\); import plasma_cutter.rl.env as e; print\\('env ok'\\); env = e.PlasmaCutterEnv\\(e.default_config\\(\\), mode='train'\\); print\\('init ok'\\); obs, info = env.reset\\(seed=42\\); print\\('reset ok', obs.shape, info.get\\('geometry_file'\\)\\)\")",
+      "Bash($PY:*)",
+      "Bash(cmd:*)",
+      "Bash(./.venv/Scripts/python.exe -c \"import sys; print\\(sys.version\\)\")",
+      "Bash('/c/Users/maxlm/OneDrive - Students RWTH Aachen University/IGMR/plasma_cutter/.venv/Scripts/python.exe' -c ':*)",
+      "Bash(tasklist //FI \"IMAGENAME eq python.exe\")",
+      "Bash(python:*)"
+    ]
+  }
+}
