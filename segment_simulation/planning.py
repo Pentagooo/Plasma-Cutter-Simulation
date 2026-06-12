@@ -16,9 +16,12 @@ AUTOMATISCH statt manuell:
   3. Anfahren:  von aussen auf den naechsten Konturpunkt (Lead-in).
 
 Existiert kein kollisionsfreier 2D-Pfad (z.B. Ziel auf einer
-Lochkontur, die vollstaendig von Material umschlossen ist), wird ein
-**Ueberflug** geplant: der Brenner hebt in Z ab und fliegt geradlinig
-ueber das Material (is_lift=True, mit Zeit-Pauschale).
+Lochkontur, die vollstaendig von Material umschlossen ist), ist der
+Uebergang INFEASIBLE: ``plan()`` gibt None zurueck. Der Brenner kann
+NICHT ueber das Material springen (Modellentscheidung, kein Z-Hub).
+Der Sequencer bewertet solche Uebergaenge mit unendlichen Kosten und
+wirft eine LinkInfeasibleError, wenn keine zulaessige Reihenfolge
+existiert.
 
 Sequencer
 ---------
@@ -61,8 +64,12 @@ except ImportError:
 # kein Abheben, kein Eilgang, keine neue Zuendung.
 CHAIN_TOL = 1e-6
 
-# Zeit-Pauschale fuer einen Ueberflug (Z-Hub hoch + runter) [s]
-LIFT_TIME_PENALTY = 2.0
+# Maximaler Abstand zweier TCP-Stuetzpunkte fuer die Swept-Area-
+# Berechnung [mm]. Der TCP-Pfad wird auf diese Schrittweite verdichtet,
+# damit die Klingenrichtung auch an Ecken kontinuierlich mitdreht
+# (sonst fehlt der "Faecher", den die Klinge beim Umfahren einer Ecke
+# ueberstreicht, und die Coverage wird unterschaetzt).
+TCP_SAMPLE_STEP = 3.0
 
 # ---------------------------------------------------------------------------
 # Punktezahl (Score)
@@ -177,6 +184,7 @@ class RunKinematics:
             tcp = self._full_ring_path(ring, s_vals[0])
         else:
             tcp = self._walk_ring(ring, s_vals)
+        tcp = self._densify(tcp, TCP_SAMPLE_STEP)
 
         # Klingenspitzen: Klinge zeigt vom TCP zum naechsten Punkt der
         # Materialoberflaeche (Richtung Objekt), Laenge L(v).
@@ -205,6 +213,23 @@ class RunKinematics:
         return run
 
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _densify(
+        path: list[np.ndarray], max_step: float
+    ) -> list[np.ndarray]:
+        """Fuegt Zwischenpunkte ein, bis kein Abschnitt laenger als
+        max_step ist (Klingenrichtung dreht dann kontinuierlich mit)."""
+        if len(path) < 2:
+            return path
+        out: list[np.ndarray] = [path[0]]
+        for i in range(len(path) - 1):
+            a, b = path[i], path[i + 1]
+            d = float(np.linalg.norm(b - a))
+            n_parts = max(1, math.ceil(d / max_step))
+            for k in range(1, n_parts + 1):
+                out.append(a + (b - a) * (k / n_parts))
+        return out
 
     @staticmethod
     def _ring_stations(ring: LineString) -> tuple[np.ndarray, np.ndarray]:
@@ -297,18 +322,21 @@ class LinkPath:
     ----------
     points  : (M, 2) TCP-Wegpunkte inkl. Start- und Zielkonturpunkt
     length  : Weglaenge [mm]
-    is_lift : True = Ueberflug (kein kollisionsfreier 2D-Pfad moeglich)
     """
     points: np.ndarray
     length: float
-    is_lift: bool = False
 
     @classmethod
-    def from_points(cls, pts: list[np.ndarray], is_lift: bool = False) -> LinkPath:
+    def from_points(cls, pts: list[np.ndarray]) -> LinkPath:
         arr = np.asarray(pts, dtype=float)
         seg = np.diff(arr, axis=0)
         length = float(np.linalg.norm(seg, axis=1).sum()) if len(arr) > 1 else 0.0
-        return cls(points=arr, length=length, is_lift=is_lift)
+        return cls(points=arr, length=length)
+
+
+class LinkInfeasibleError(RuntimeError):
+    """Kein kollisionsfreier Verfahrweg moeglich -- der Plan ist nicht
+    ausfuehrbar, weil der Brenner nicht ueber das Material springen kann."""
 
 
 # ---------------------------------------------------------------------------
@@ -395,12 +423,19 @@ class LinkPlanner:
     # Pfadsuche
     # ------------------------------------------------------------------
 
-    def plan(self, start: np.ndarray, goal: np.ndarray) -> LinkPath:
+    def plan(self, start: np.ndarray, goal: np.ndarray) -> LinkPath | None:
         """Plant den Verfahrweg zwischen zwei TCP-Punkten.
 
         Beide Punkte liegen bereits auf dem Offset-Pfad (Mindestabstand
         zum Material), daher ist kein Abheben noetig -- nur die Route
         dazwischen muss kollisionsfrei sein.
+
+        Returns
+        -------
+        LinkPath -- oder None, wenn kein kollisionsfreier 2D-Pfad
+        existiert (z.B. Ziel auf einer vollstaendig umschlossenen
+        Lochkontur). Der Brenner kann nicht ueber das Material
+        springen, der Uebergang ist dann infeasible.
         """
         start = np.asarray(start, dtype=float)
         goal = np.asarray(goal, dtype=float)
@@ -412,9 +447,9 @@ class LinkPlanner:
             return LinkPath.from_points([start, goal])
 
         # Wenn Start/Ziel nicht im freien Raum liegen (sollte bei
-        # feasiblen Runs nicht vorkommen): direkt Ueberflug.
+        # feasiblen Runs nicht vorkommen): kein Verfahrweg moeglich.
         if not self._is_point_free(start) or not self._is_point_free(goal):
-            return LinkPath.from_points([start, goal], is_lift=True)
+            return None
 
         # 1) Direktverbindung frei?
         if self._edge_if_free(start, goal) is not None:
@@ -425,8 +460,8 @@ class LinkPlanner:
         if path is not None:
             return LinkPath.from_points(path)
 
-        # 3) Kein 2D-Pfad -> Ueberflug (Z-Hub)
-        return LinkPath.from_points([start, goal], is_lift=True)
+        # 3) Kein 2D-Pfad -> infeasible (kein Ueberflug erlaubt)
+        return None
 
     def _dijkstra(
         self, a: np.ndarray, b: np.ndarray
@@ -502,7 +537,6 @@ class CutPlan:
     travel_time: float = 0.0
     pierce_time: float = 0.0
     n_pierces: int = 0
-    n_lifts: int = 0
     cut_length: float = 0.0
     travel_length: float = 0.0
     is_optimal: bool = False   # True = exakte (zeitminimale) Reihenfolge
@@ -516,14 +550,13 @@ class CutPlan:
         return [s.run for s in self.steps if s.kind == "cut" and s.run]
 
     def summary(self) -> str:
-        lift_info = f" | Ueberfluege: {self.n_lifts}" if self.n_lifts else ""
         opt_info = "exakt zeitminimal" if self.is_optimal else "heuristisch"
         return (
             f"CutPlan ({opt_info}): {len(self.runs_in_order)} Segment(e) | "
             f"Zuendungen: {self.n_pierces} | "
             f"Schnitt: {self.cut_length:.0f} mm / {self.cut_time:.1f} s | "
             f"Eilgang: {self.travel_length:.0f} mm / {self.travel_time:.1f} s | "
-            f"Pierce: {self.pierce_time:.1f} s{lift_info} | "
+            f"Pierce: {self.pierce_time:.1f} s | "
             f"Gesamt: {self.total_time:.1f} s"
         )
 
@@ -559,7 +592,7 @@ class Sequencer:
         # Cache fuer geplante Verbindungswege: ein Punktpaar wird in der
         # Optimierung viele Male bewertet, der Routing-Pfad ist aber
         # symmetrisch und aendert sich nicht.
-        self._link_cache: dict[tuple, LinkPath] = {}
+        self._link_cache: dict[tuple, LinkPath | None] = {}
 
     # ------------------------------------------------------------------
     # Uebergangs-Kosten: ECHTE kollisionsfreie Verfahrwege (gecacht)
@@ -569,16 +602,19 @@ class Sequencer:
     def _pt_key(p: np.ndarray) -> tuple:
         return (round(float(p[0]), 6), round(float(p[1]), 6))
 
-    def link_between(self, a: np.ndarray, b: np.ndarray) -> LinkPath:
-        """Kollisionsfreier Verfahrweg a -> b (gecacht, symmetrisch)."""
+    def link_between(self, a: np.ndarray, b: np.ndarray) -> LinkPath | None:
+        """Kollisionsfreier Verfahrweg a -> b (gecacht, symmetrisch).
+
+        None = kein kollisionsfreier Pfad moeglich (infeasible).
+        """
         ka, kb = self._pt_key(a), self._pt_key(b)
-        cached = self._link_cache.get((ka, kb))
-        if cached is not None:
-            return cached
-        rev = self._link_cache.get((kb, ka))
-        if rev is not None:
-            link = LinkPath(points=rev.points[::-1].copy(),
-                            length=rev.length, is_lift=rev.is_lift)
+        if (ka, kb) in self._link_cache:
+            return self._link_cache[(ka, kb)]
+        if (kb, ka) in self._link_cache:
+            rev = self._link_cache[(kb, ka)]
+            link = (None if rev is None else
+                    LinkPath(points=rev.points[::-1].copy(),
+                             length=rev.length))
         else:
             link = self.link_planner.plan(a, b)
         self._link_cache[(ka, kb)] = link
@@ -586,12 +622,15 @@ class Sequencer:
 
     def _trans_cost(self, end_xy: np.ndarray, start_xy: np.ndarray) -> float:
         """Zeitkosten [s] fuer den Uebergang zwischen zwei Runs:
-        echter Verfahrweg (inkl. Ueberflug-Pauschale) + Pierce-Zeit.
-        Nahtloser Anschluss (gleicher Punkt) kostet nichts.
+        echter Verfahrweg + Pierce-Zeit. Nahtloser Anschluss (gleicher
+        Punkt) kostet nichts. Existiert kein kollisionsfreier
+        Verfahrweg, ist der Uebergang infeasible -> unendliche Kosten.
         """
         if float(np.linalg.norm(start_xy - end_xy)) < CHAIN_TOL:
             return 0.0  # nahtlos: kein Eilgang, keine neue Zuendung
         link = self.link_between(end_xy, start_xy)
+        if link is None:
+            return math.inf
         return self._link_time(link) + self.cutter.pierce_time()
 
     def _sequence_cost(self, ordered: list[CutRun]) -> float:
@@ -687,6 +726,8 @@ class Sequencer:
 
         # Bestes Ende suchen und Pfad rekonstruieren
         end_idx = np.unravel_index(np.argmin(dp[full]), dp[full].shape)
+        if not math.isfinite(dp[full][end_idx]):
+            self._raise_infeasible(variants)
         state = (full, int(end_idx[0]), int(end_idx[1]))
         order_rev: list[tuple[int, int]] = []
         while True:
@@ -697,6 +738,40 @@ class Sequencer:
             state = parent[state]
         order_rev.reverse()
         return [variants[j][oj] for j, oj in order_rev]
+
+    # ------------------------------------------------------------------
+    # Infeasibility-Meldung
+    # ------------------------------------------------------------------
+
+    def _raise_infeasible(
+        self, variants: list[tuple[CutRun, CutRun]]
+    ) -> None:
+        """Wirft LinkInfeasibleError mit den Uebergaengen, fuer die in
+        KEINER Richtungs-Kombination ein kollisionsfreier Verfahrweg
+        existiert (der Brenner kann nicht ueber das Material springen)."""
+        blocked: list[str] = []
+        for i, (fwd_i, rev_i) in enumerate(variants):
+            for j, (fwd_j, rev_j) in enumerate(variants):
+                if i == j:
+                    continue
+                feasible = any(
+                    math.isfinite(self._trans_cost(a.tcp_end, b.tcp_start))
+                    for a in (fwd_i, rev_i) for b in (fwd_j, rev_j))
+                if not feasible:
+                    blocked.append(
+                        f"R{fwd_i.run_id} -> R{fwd_j.run_id}")
+        if blocked:
+            detail = ", ".join(blocked)
+            raise LinkInfeasibleError(
+                f"Kein kollisionsfreier Verfahrweg fuer die "
+                f"Uebergaenge: {detail}. Der Brenner kann nicht ueber "
+                f"das Material springen -- diese Segmentkombination ist "
+                f"nicht planbar (z.B. vollstaendig umschlossene "
+                f"Lochkontur).")
+        raise LinkInfeasibleError(
+            "Keine zulaessige Schnittreihenfolge: die kollisionsfreien "
+            "Verfahrwege lassen sich nicht zu einer Tour ueber alle "
+            "Segmente verbinden (Ueberflug ist nicht moeglich).")
 
     # ------------------------------------------------------------------
     # Heuristik (Fallback fuer viele Runs)
@@ -725,14 +800,19 @@ class Sequencer:
                             c = self._trans_cost(cur_end, v.tcp_start)
                             if c < best_d:
                                 best_j, best_d, best_v = j, c, v
+                    if best_v is None:
+                        break  # alle Rest-Uebergaenge infeasible
                     seq.append(best_v)
                     used.add(best_j)
+                if len(used) < len(variants):
+                    continue  # dieser Startkandidat fuehrt nicht zum Ziel
                 cost = self._sequence_cost(seq)
-                if cost < best_cost:
+                if math.isfinite(cost) and cost < best_cost:
                     best_cost = cost
                     best_seq = seq
 
-        assert best_seq is not None
+        if best_seq is None:
+            self._raise_infeasible(variants)
         best_seq = self._local_search(best_seq)
         return best_seq
 
@@ -804,8 +884,6 @@ class Sequencer:
                         kind="link", link=link, duration=t_link))
                     plan.travel_time += t_link
                     plan.travel_length += link.length
-                    if link.is_lift:
-                        plan.n_lifts += 1
 
             # Massgeblich ist der TCP-Pfad (Offset), nicht die Kontur
             cut_len = run.tcp_length if run.tcp_length > 0 else run.length
@@ -826,11 +904,8 @@ class Sequencer:
         """Zeit fuer einen Verfahrweg [s] (Eilgang).
 
         Der TCP bleibt durchgehend auf Sicherheitsabstand, daher
-        komplett im Eilgang. Ueberfluege bekommen eine Z-Hub-Pauschale.
+        komplett im Eilgang.
         """
         if link.length <= 0:
             return 0.0
-        t = link.length / self.cutter.rapid_speed
-        if link.is_lift:
-            t += LIFT_TIME_PENALTY
-        return t
+        return link.length / self.cutter.rapid_speed

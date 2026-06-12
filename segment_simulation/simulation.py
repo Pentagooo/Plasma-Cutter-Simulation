@@ -36,6 +36,7 @@ Bedienung
   Linksklick  : Start-/Endpunkt waehlen
   Rechtsklick / U : letztes Segment entfernen
   A           : alle restlichen Konturen komplett auswaehlen
+  P           : Auto-Planer (waehlt die Segmente automatisch)
   Enter       : Planen + Simulation starten
   R           : alles zuruecksetzen
   Esc         : Auswahl/Animation abbrechen
@@ -64,8 +65,9 @@ try:
     )
     from .planning import (
         LinkPlanner, Sequencer, CutPlan, RunKinematics,
-        compute_score, CHAIN_TOL,
+        compute_score, CHAIN_TOL, LinkInfeasibleError,
     )
+    from .autoplan import AutoPlanner
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -80,8 +82,9 @@ except ImportError:
     )
     from plasma_cutter.segment_simulation.planning import (
         LinkPlanner, Sequencer, CutPlan, RunKinematics,
-        compute_score, CHAIN_TOL,
+        compute_score, CHAIN_TOL, LinkInfeasibleError,
     )
+    from plasma_cutter.segment_simulation.autoplan import AutoPlanner
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +147,6 @@ _C = dict(
     blade        = "#FF2222",
     blade_glow   = "#FF6644",
     link         = "#666666",
-    lift         = "#9933CC",
     tcp_trail    = "#FF8C00",
     stats_bg     = "#EEF4FF",
     grid_bg      = "#F9FAFB",
@@ -167,8 +169,8 @@ class _Frame:
     """Ein Animations-Frame: Zeitpunkt, TCP, Klingenspitze, Modus."""
     time: float
     pos: np.ndarray              # TCP-Position
-    tip: np.ndarray | None       # Klingenspitze (None bei link/lift)
-    mode: str                    # "pierce" | "cut" | "link" | "lift"
+    tip: np.ndarray | None       # Klingenspitze (None bei link)
+    mode: str                    # "pierce" | "cut" | "link"
     run_id: int = -1
 
 
@@ -404,6 +406,10 @@ class SegmentCutSimulation:
             self._select_all_remaining()
             return
 
+        if event.key == "p":
+            self._auto_select()
+            return
+
         if event.key == "enter":
             if self._runs:
                 self._plan_and_animate()
@@ -466,6 +472,38 @@ class SegmentCutSimulation:
             groups.pop()
         return [((g[0] - 1) % n, (g[-1] + 1) % n) for g in groups]
 
+    def _auto_select(self) -> None:
+        """Auto-Planer (Taste P): waehlt die Segmente automatisch.
+
+        Ersetzt die aktuelle Auswahl durch das Greedy-Set-Cover-Ergebnis
+        (siehe autoplan.py). Enter startet danach wie gewohnt die
+        Planung + Animation.
+        """
+        self._status_msg = "Auto-Planer laeuft ..."
+        self._draw_stats()
+        self._fig.canvas.draw()
+        self._fig.canvas.flush_events()
+
+        planner = AutoPlanner(
+            self.grid, self.contour, self.cutter,
+            self.kinematics, self.sequencer)
+        result = planner.plan()
+
+        self._runs = list(result.runs)
+        self._plan = None
+        self._score = None
+        self._pending = None
+        self._state = _State.IDLE
+
+        print()
+        print(result.summary())
+        cov = result.report.fraction if result.report else 0.0
+        self._status_msg = (
+            f"Auto-Plan: {len(result.runs)} Schnitt(e), "
+            f"Coverage {cov:.1%}, {result.elapsed:.2f} s "
+            f"-- Enter zum Starten.")
+        self._redraw()
+
     def _full_reset(self) -> None:
         self._stop_animation(redraw=False)
         self._runs.clear()
@@ -502,7 +540,15 @@ class SegmentCutSimulation:
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()
 
-        self._plan = self.sequencer.build_plan(self._runs)
+        try:
+            self._plan = self.sequencer.build_plan(self._runs)
+        except LinkInfeasibleError as exc:
+            self._plan = None
+            self._status_msg = f"Nicht planbar: {exc}"
+            print()
+            print(f"[INFEASIBLE] {exc}")
+            self._redraw()
+            return
         self._score = compute_score(self._plan.total_time, report.fraction)
         print(self._plan.summary())
         order = " -> ".join(f"R{r.run_id}" for r in self._plan.runs_in_order)
@@ -566,8 +612,7 @@ class SegmentCutSimulation:
                       run_id=run.run_id)
             elif step.kind == "link" and step.link is not None:
                 link = step.link
-                mode = "lift" if link.is_lift else "link"
-                along(link.points, None, self.cutter.rapid_speed, mode)
+                along(link.points, None, self.cutter.rapid_speed, "link")
         return frames
 
     def _run_animation(self, frames: list[_Frame]) -> None:
@@ -674,7 +719,7 @@ class SegmentCutSimulation:
             n_tot = sim.grid.total_points
             mode_txt = {
                 "cut": "Schneiden", "pierce": "Zuenden",
-                "link": "Verfahren", "lift": "Ueberflug",
+                "link": "Verfahren",
             }[fr.mode]
             info.set_text(
                 f"t = {fr.time:5.1f} / {total_time:.1f} s\n"
@@ -832,12 +877,8 @@ class SegmentCutSimulation:
                 if step.kind == "link" and step.link is not None:
                     pts = step.link.points
                     style = dict(linewidth=1.4, alpha=0.65, zorder=9)
-                    if step.link.is_lift:
-                        ax.plot(pts[:, 0], pts[:, 1], ":",
-                                color=_C["lift"], **style)
-                    else:
-                        ax.plot(pts[:, 0], pts[:, 1], "--",
-                                color=_C["link"], **style)
+                    ax.plot(pts[:, 0], pts[:, 1], "--",
+                            color=_C["link"], **style)
 
         # Pending-Startpunkt
         if self._pending is not None:
@@ -866,8 +907,6 @@ class SegmentCutSimulation:
                    markersize=8, label="Punkt fehlt"),
             Line2D([0], [0], linestyle="--", color=_C["link"],
                    label="Verfahrweg (auto)"),
-            Line2D([0], [0], linestyle=":", color=_C["lift"],
-                   label="Ueberflug (Z-Hub)"),
         ], fontsize=7.5, loc="upper right", framealpha=0.92,
             edgecolor="#CCCCCC", labelspacing=0.45)
 
@@ -885,7 +924,8 @@ class SegmentCutSimulation:
 
         ax.text(0.5, -0.048,
                 "Klick: Start/Ende  |  Rechtsklick/U: Undo  |  A: alles  |  "
-                "Enter: Planen+Start  |  R: Reset  |  Esc: Abbruch",
+                "P: Auto-Plan  |  Enter: Planen+Start  |  R: Reset  |  "
+                "Esc: Abbruch",
                 transform=ax.transAxes, fontsize=7.5, color="#888",
                 ha="center", va="top")
 
@@ -969,8 +1009,6 @@ class SegmentCutSimulation:
             kv("Schnittzeit", f"{self._plan.cut_time:.1f} s")
             kv("Eilgang", f"{self._plan.travel_time:.1f} s")
             kv("Pierce", f"{self._plan.pierce_time:.1f} s")
-            if self._plan.n_lifts:
-                kv("Ueberfluege", str(self._plan.n_lifts), vc=_C["lift"])
             kv("Gesamtzeit", f"{self._plan.total_time:.1f} s",
                vc="#0B6E2F", bold=True)
             if self._score is not None:

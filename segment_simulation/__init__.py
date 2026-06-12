@@ -18,6 +18,7 @@ Module
 ------
 segments.py    Konturen, Segmentierung, CutRuns, Coverage
 planning.py    LinkPlanner (kollisionsfreie Verbindungen) + Sequencer
+autoplan.py    Automatische Segmentwahl (Greedy Set-Cover + Pruning)
 simulation.py  Interaktive Matplotlib-Simulation + Animation
 """
 
@@ -34,12 +35,14 @@ from .segments import (
 from .planning import (
     LinkPath,
     LinkPlanner,
+    LinkInfeasibleError,
     Sequencer,
     CutPlan,
     PlannedStep,
     RunKinematics,
     compute_score,
 )
+from .autoplan import AutoPlanner, AutoPlanResult, auto_plan
 
 __all__ = [
     "ContourLoop",
@@ -52,9 +55,13 @@ __all__ = [
     "compute_grid_coverage",
     "LinkPath",
     "LinkPlanner",
+    "LinkInfeasibleError",
     "Sequencer",
     "CutPlan",
     "PlannedStep",
     "RunKinematics",
     "compute_score",
+    "AutoPlanner",
+    "AutoPlanResult",
+    "auto_plan",
 ]

@@ -50,10 +50,16 @@ Start: `python -m plasma_cutter.segment_simulation.simulation`
   (besuchte Menge, letztes Segment, Richtung); gegen Brute-Force
   verifiziert. Darüber Heuristik (NN + 2-opt), gleiche Kostenfunktion.
 - Übergangskosten = ECHTE LinkPlanner-Pfade (Sichtbarkeitsgraph +
-  Dijkstra um das gepufferte Material, Überflug-Fallback mit
-  2 s-Pauschale bei umschlossenen Löchern) + Pierce-Zeit. Gecacht
+  Dijkstra um das gepufferte Material) + Pierce-Zeit. Gecacht
   (symmetrisch). Nahtloser Anschluss = 0 Kosten → Verkettung ohne
   Neuzündung entsteht von selbst.
+- **Kein Überflug (bewusst entfernt):** Der Brenner kann NICHT über
+  das Material springen (Modellentscheidung BA). Findet der LinkPlanner
+  keinen kollisionsfreien 2D-Pfad (z. B. vollständig umschlossene
+  Lochkontur), ist der Übergang infeasible: `LinkPlanner.plan()` gibt
+  `None` zurück, der Sequencer lehnt die Run-Kombination ab und wirft
+  `LinkInfeasibleError` mit Angabe des unmöglichen Übergangs. Kein
+  Z-Hub-Fallback, keine Pauschale.
 - `CutPlan.is_optimal` zeigt exakt/heuristisch (UI-Zeile „Optimalität“).
 
 ---
@@ -127,7 +133,8 @@ hängt in der Luft.
    - 4.2 Reihenfolge + Richtung: Held-Karp exakt (→ erfüllt A2, knüpft
      an Kap.-2.3-Begriffe an), Heuristik-Fallback mit Gap-Angabe
    - 4.3 Verfahrwegplanung: Sichtbarkeitsgraph (vollständig in 2D →
-     A1-Argument), Überflug-Fallback
+     A1-Argument); kein Überflug → unerreichbare Übergänge werden als
+     infeasible gemeldet (LinkInfeasibleError)
    - 4.4 **Automatische Segmentwahl** (das Neue, Plan in Kap. 4 unten)
    - 4.5 Geschwindigkeitswahl je Segment aus benötigter Schnitttiefe
      (Distanztransformation) — erzeugt den Margen-Hebel für Kap. 5
@@ -170,6 +177,14 @@ Abweichung“ ist *das* Ergebnisdiagramm der Arbeit.
 ---
 
 ## 4. Technischer Plan: Automatische Segmentwahl (BA-Kap. 4.4)
+
+> **STATUS 2026-06-10: IMPLEMENTIERT** in `autoplan.py` (Greedy
+> Set-Cover + Pruning + Merge mit Coverage-Garantie; `auto_plan(grid)`
+> headless, Taste P in der UI). Abweichung vom Plan unten: Die
+> Abdeckbarkeits-Matrix wird aus den ECHTEN Swept Areas der
+> Primitiv-Segmente gebaut (einmal `RunKinematics.attach` pro Segment)
+> statt per Distanztransformation — exakt und einfacher, < 0,15 s auf
+> allen Testgeometrien. SA war nicht nötig. Details: SESSION_STATUS.md.
 
 ### Problemformulierung (wichtigste Erkenntnis)
 
@@ -293,10 +308,12 @@ FUNKTION link_between(a, b):                             # mit Cache
     SONST WENN Dijkstra über Sichtbarkeitsgraph findet Weg:
         pfad = kürzester Weg um das Material herum
     SONST:
-        pfad = [a, b], ÜBERFLUG                          # Z-Hub, +2 s Pauschale
-    Cache speichern; RETURN pfad
+        pfad = KEINER (None)                             # kein Überflug erlaubt
+    Cache speichern; RETURN pfad                         # None = infeasible
 
-zeit(link) = länge / v_eilgang   (+ 2 s falls Überflug)
+zeit(link) = länge / v_eilgang
+# Liefert link_between None, ist der Übergang infeasible → der Sequencer
+# verwirft die Run-Kombination und wirft LinkInfeasibleError.
 ```
 
 ### 6.2 Hauptverzweigung
