@@ -52,7 +52,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 from matplotlib.animation import FuncAnimation
-from matplotlib.widgets import Slider
+from matplotlib.widgets import Slider, Button
 from shapely.geometry import Polygon
 
 try:
@@ -245,6 +245,7 @@ class SegmentCutSimulation:
         self._ax_main: plt.Axes | None = None
         self._ax_stats: plt.Axes | None = None
         self._speed_slider: Slider | None = None
+        self._reset_button: Button | None = None
 
     # ------------------------------------------------------------------
 
@@ -277,7 +278,7 @@ class SegmentCutSimulation:
 
         gs = self._fig.add_gridspec(
             1, 2, width_ratios=[4, 1.15],
-            left=0.05, right=0.98, top=0.93, bottom=0.12, wspace=0.03)
+            left=0.05, right=0.98, top=0.88, bottom=0.12, wspace=0.03)
         self._ax_main = self._fig.add_subplot(gs[0])
         self._ax_stats = self._fig.add_subplot(gs[1])
 
@@ -288,6 +289,12 @@ class SegmentCutSimulation:
             valstep=[0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0],
             color="#0066CC")
         self._speed_slider.on_changed(self._on_speed)
+
+        ax_reset = self._fig.add_axes([0.62, 0.035, 0.09, 0.045])
+        self._reset_button = Button(
+            ax_reset, "Reset (R)", color="#F0D0D0", hovercolor="#E0A0A0")
+        self._reset_button.label.set_fontsize(9)
+        self._reset_button.on_clicked(lambda _evt: self._full_reset())
 
         self._fig.canvas.mpl_connect("button_press_event", self._on_click)
         self._fig.canvas.mpl_connect("key_press_event", self._on_key)
@@ -907,8 +914,9 @@ class SegmentCutSimulation:
                    markersize=8, label="Punkt fehlt"),
             Line2D([0], [0], linestyle="--", color=_C["link"],
                    label="Verfahrweg (auto)"),
-        ], fontsize=7.5, loc="upper right", framealpha=0.92,
-            edgecolor="#CCCCCC", labelspacing=0.45)
+        ], fontsize=7.5, loc="lower left", bbox_to_anchor=(0.0, 1.01),
+            ncol=4, framealpha=0.92, edgecolor="#CCCCCC",
+            labelspacing=0.45, columnspacing=1.4, borderaxespad=0.0)
 
         ax.set_aspect("equal")
         ax.set_xlabel("x [mm]", fontsize=9)

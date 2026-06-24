@@ -144,7 +144,7 @@ class ContourLoop:
             normal = -normal
         return normal
 
-    def corner_positions(self, angle_thresh_deg: float = 40.0) -> list[int]:
+    def corner_positions(self, angle_thresh_deg: float = 30.0) -> list[int]:
         """Positionen mit starkem Richtungswechsel (Ecken der Kontur)."""
         n = self._n
         corners: list[int] = []
@@ -312,7 +312,7 @@ class SegmentedContour:
         self,
         loops: list[ContourLoop],
         target_segment_length: float | None = None,
-        corner_angle_deg: float = 40.0,
+        corner_angle_deg: float = 30.0,
         point_spacing: float = 5.0,
     ) -> None:
         self.loops = loops
@@ -335,7 +335,7 @@ class SegmentedContour:
         cls,
         grid: PointGrid,
         target_segment_length: float | None = None,
-        corner_angle_deg: float = 40.0,
+        corner_angle_deg: float = 30.0,
     ) -> SegmentedContour:
         """Baut die SegmentedContour aus einem PointGrid.
 
