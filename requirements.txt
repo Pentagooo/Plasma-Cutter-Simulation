@@ -1,0 +1,12 @@
+# Laufzeit-Abhönigkeit der Segment-Simulation (Paket "plasma_cutter").
+#
+# Installation (idealerweise in einem venv):
+#   python -m pip install -r requirements.txt
+#
+# Getestet mit Python 3.14 unter Windows; die untenstehenden Unter-
+# grenzen entsprechen den verifizierten Versionen (numpy 2.4.4,
+# shapely 2.1.2, matplotlib 3.10.8)
+
+numpy>=2.0
+shapely>=2.0
+matplotlib>=3.8
