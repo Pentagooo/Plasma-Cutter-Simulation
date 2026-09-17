@@ -11,18 +11,15 @@ Wie es umgesetzt ist
 --------------------
 Die reinen Geschwindigkeits-/Geometrie-Werte stehen als Attribute hier;
 die *physikalisch modellierten* Größen (geschwindigkeitsabhängige
-Klingenlänge L(v), Pierce-Zeit, Brennerneigung) sind
-in ein ``CuttingAssumptions``-Bundle (siehe ``assumptions.py``)
-ausgelagert und werden von dort abgefragt. So bleibt der Cutter selbst
-schlank und die Modell-Annahmen sind an einer Stelle austauschbar
-(Presets: ideal / realistisch / verrauscht).
+Klingenlänge L(v), Pierce-Zeit) sind in ein ``CuttingAssumptions``-Bundle
+(siehe ``assumptions.py``) ausgelagert und werden von dort abgefragt. So
+bleibt der Cutter selbst schlank und die Modell-Annahmen sind an einer
+Stelle austauschbar.
 
 Die Segment-Simulation setzt zusätzlich ``max_cutting_speed``, weil
 dort die Klingenlänge L(v) von der Schneidgeschwindigkeit abhängt.
 """
 from __future__ import annotations
-
-import numpy as np
 
 from .assumptions import CuttingAssumptions
 
@@ -38,7 +35,6 @@ class Cutter:
     Parameters
     ----------
     max_depth      : maximum penetration depth perpendicular to the cutter [mm].
-    max_tilt       : maximum tilt angle from the surface normal [rad].
     cutting_speed  : speed while cutting through material (plasma on) [mm/s].
     max_cutting_speed : upper limit for cutting_speed [mm/s]. None = unbegrenzt
                      (rückwärtskompatibel). Wird von der Segment-Simulation
@@ -46,20 +42,28 @@ class Cutter:
     moving_speed   : speed while traversing near geometry without cutting (plasma off) [mm/s].
     rapid_speed    : repositioning speed through free air  [mm/s].
     minimum_gap    : minimum distance between TCP and material surface [mm]. dmin
-    assumptions    : Bundle modellbasierter Annahmen (L(v), Pierce, Tilt).
-                     Siehe ``assumptions.py``. Wenn None wird das
-                     Realitätsnähe-Preset verwendet.
+    speed_switch_time : Zeitaufschlag je Geschwindigkeitswechsel IM laufenden
+                     Schnitt [s] (Roboter-Rampe + Qualitätstransient beim
+                     Umschalten der Schnittgeschwindigkeit). EIN abstrakter
+                     Parameter analog σ_TCP -- der Roboter bleibt
+                     unspezifiziert. Fällt NICHT beim Abheben/Neuanstich an
+                     (dafür gibt es pierce_time).
+                     TODO(Projektwerte): Wert aus dem Cut Chart / der
+                     Rampenzeit des realen Systems begründen; Default 0.0 s
+                     ist ein OFFENER PUNKT (Wechsel derzeit kostenlos).
+    assumptions    : Bundle modellbasierter Annahmen (L(v), Pierce).
+                     Siehe ``assumptions.py``. None = Standardwerte.
     """
 
     def __init__(
         self,
         max_depth: float = 20.0,
-        max_tilt: float = np.radians(20),
         cutting_speed: float = 5.0,
         max_cutting_speed: float | None = None,
         moving_speed: float = 20.0,
         rapid_speed: float = 50.0,
         minimum_gap: float = 3.0,
+        speed_switch_time: float = 0.0,
         assumptions: CuttingAssumptions | None = None,
     ) -> None:
         if max_cutting_speed is not None and cutting_speed > max_cutting_speed:
@@ -68,12 +72,12 @@ class Cutter:
                 f"max_cutting_speed = {max_cutting_speed} mm/s."
             )
         self.max_depth = max_depth
-        self.max_tilt = max_tilt
         self.cutting_speed = cutting_speed
         self.max_cutting_speed = max_cutting_speed
         self.moving_speed = moving_speed
         self.rapid_speed = rapid_speed
         self.minimum_gap = minimum_gap
+        self.speed_switch_time = float(speed_switch_time)
         self.assumptions = assumptions or CuttingAssumptions()
 
     # ------------------------------------------------------------------
@@ -103,19 +107,6 @@ class Cutter:
         """
         return self.assumptions.pierce_time()
 
-    def effective_depth(self, tilt: float = 0.0) -> float:
-        """Reachable depth when the cutter is tilted by *tilt* [rad].
-
-        A tilted cutter reaches deeper into the material at the cost
-        of a wider kerf:  d_eff = max_depth / cos(tilt).
-        """
-        if abs(tilt) > self.max_tilt:
-            raise ValueError(
-                f"|tilt| = {np.degrees(abs(tilt)):.1f}° exceeds "
-                f"max_tilt = {np.degrees(self.max_tilt):.1f}°."
-            )
-        return self.max_depth / np.cos(tilt)
-
     def time_for_length(
         self,
         length: float,
@@ -144,7 +135,6 @@ class Cutter:
         return (
             f"Cutter(max_depth={self.max_depth} mm, "
             f"L(v_cut)={self.blade_length():.1f} mm, "
-            f"max_tilt={np.degrees(self.max_tilt):.1f} deg, "
             f"v_cut={self.cutting_speed} mm/s, "
             f"v_move={self.moving_speed} mm/s, "
             f"v_rapid={self.rapid_speed} mm/s, "

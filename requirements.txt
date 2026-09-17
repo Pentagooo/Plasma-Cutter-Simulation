@@ -1,12 +1,21 @@
-# Laufzeit-Abhönigkeit der Segment-Simulation (Paket "plasma_cutter").
+# Laufzeit-Abhaengigkeiten des Pakets "plasma_cutter".
 #
 # Installation (idealerweise in einem venv):
 #   python -m pip install -r requirements.txt
 #
-# Getestet mit Python 3.14 unter Windows; die untenstehenden Unter-
-# grenzen entsprechen den verifizierten Versionen (numpy 2.4.4,
-# shapely 2.1.2, matplotlib 3.10.8)
+# Getestet mit Python 3.14 unter Windows (numpy 2.4, shapely 2.1,
+# matplotlib 3.10, scikit-learn 1.7).
 
+# Kern: Geometrie, Planung, Simulator
 numpy>=2.0
 shapely>=2.0
 matplotlib>=3.8
+
+# Unterpaket segment_simulation/surrogate: Distanz-KDTree (Merkmale),
+# Gradient-Boosting-Klassifikator, Modell-Serialisierung
+scipy>=1.11
+scikit-learn>=1.3
+joblib>=1.3
+
+# Tests (segment_simulation/surrogate/tests)
+pytest>=7.0

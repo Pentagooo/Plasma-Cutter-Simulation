@@ -7,6 +7,6 @@ fest, welche Symbole man direkt ``from plasma_cutter.geometry import X``
 holen kann.
 """
 
-from .point_grid import PointGrid, GridPoint, CutPoint, PointStatus
+from .point_grid import PointGrid, GridPoint, PointStatus
 
-__all__ = ["PointGrid", "GridPoint", "CutPoint", "PointStatus"]
+__all__ = ["PointGrid", "GridPoint", "PointStatus"]

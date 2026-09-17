@@ -10,6 +10,7 @@ build/
 .venv/
 venv/
 env/
+.pytest_cache/
 
 # Logs
 *.log
@@ -19,22 +20,19 @@ env/
 .idea/
 *.swp
 
-# Claude Code (lokal/persönlich)
+# Claude Code (lokal/persoenlich)
 .claude/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Alter RL-/Simulations-Stack
-/rl/
-/simulation/
+# Scratch-Ausgaben der Lernkurve (je Modell eine Benchmark-CSV)
+/segment_simulation/surrogate/artifacts/learning_curve_runs/
 
-# Generierte Benchmark-Plots (reproduzierbar via benchmark_autoplan.py)
-/segment_simulation/benchmark_results/
-
-# Persönliche Arbeitsnotizen (nicht im geteilten Repo)
-/segment_simulation/KONZEPT_NOTIZEN.md
-/segment_simulation/SESSION_STATUS.md
-/segment_simulation/STAND_2026-06-17.md
-/GIT_UPLOAD_TODO.md
+# Label-Caches, Laeufe und Archive des Surrogats (gross, lokal)
+/segment_simulation/surrogate/artifacts/labels/
+/segment_simulation/surrogate/artifacts/runs/
+/segment_simulation/surrogate/artifacts/archive_*/
+/logs/
+/STOP
