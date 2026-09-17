@@ -394,7 +394,12 @@ def build_dataset(
     seen: set[str] = set()
 
     def _take(path: Path, strict: bool) -> bool:
-        d = np.load(path, allow_pickle=True)
+        try:
+            d = np.load(path, allow_pickle=True)
+        except Exception:
+            if strict:
+                raise
+            return False            # z.B. gerade im Schreiben (Zwischenstand)
         lv = int(d["label_version"]) if "label_version" in d.files else -1
         ph = str(d["phys_hash"]) if "phys_hash" in d.files else None
         pa = str(d["params_hash"]) if "params_hash" in d.files else None

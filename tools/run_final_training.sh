@@ -121,7 +121,25 @@ phase3() {
     echo "== phase3 fertig -> tools/collect_results.sh =="
 }
 
+snapshot() {
+    # Zwischenstand WAEHREND des Laufs: aktuelle Labels einsammeln, Modell
+    # trainieren, Benchmark auf dem Standard-Testsatz (falls schon gelabelt).
+    # Stoert den laufenden Label-Prozess nicht (liest nur den Cache).
+    SNAP="$RUNS/snapshot_$(date +%H%M)"
+    echo "== snapshot -> $SNAP =="
+    train_env
+    python -m "$MOD.dataset" --n 0 --seed $SEED_TRAIN --k-max "$KMAX_MAIN" \
+        --seg-mix "$SEG_MIX" --extra-labels "$RUNS/main/labels" --out "$SNAP"
+    python -m "$MOD.model" --train --out "$SNAP"
+    if [[ -d "$RUNS/main_eval/labels" ]]; then
+        python -m "$MOD.benchmark" --n "$N_EVAL" --seed $SEED_EVAL --reps 1 \
+            --model "$SNAP/surrogate_model.joblib" --out "$SNAP" \
+            --opt-labels "$RUNS/main_eval/labels"
+        echo "-> $SNAP/benchmark.md"
+    fi
+}
+
 case "${1:-}" in
-    phase1|phase2|phase3) "$1" ;;
-    *) echo "usage: $0 {phase1|phase2|phase3}" >&2; exit 2 ;;
+    phase1|phase2|phase3|snapshot) "$1" ;;
+    *) echo "usage: $0 {phase1|phase2|phase3|snapshot}" >&2; exit 2 ;;
 esac

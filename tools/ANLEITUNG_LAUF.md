@@ -75,6 +75,20 @@ Im Log erscheint alle 100 Instanzen eine Zeile wie
 `[1200/4200] 7200s, ETA 18000s {'new': 1190, 'too_big': 10}`.
 Am Ende steht `== phase1 fertig ==`.
 
+**Zwischenergebnis mit Modell** (jederzeit während des Laufs, dauert wenige
+Minuten, stört das Labeln nicht):
+
+```bash
+cd ~/work
+plasma_cutter/tools/run_final_training.sh snapshot
+```
+
+Sammelt die bis dahin fertigen Labels ein, trainiert ein Modell und
+benchmarkt es gegen Greedy+ und das Optimum auf dem Standard-Testsatz.
+Ergebnis in `plasma_cutter/segment_simulation/surrogate/artifacts/runs/snapshot_<Uhrzeit>/benchmark.md`
+(Tabelle oben: T, Lücke zum Optimum, Planzeit). Der Testsatz ist ab etwa einer
+Stunde nach dem Start vorhanden.
+
 ## 5. Falls etwas dazwischenkommt
 
 ```bash
