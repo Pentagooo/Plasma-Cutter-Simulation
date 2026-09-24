@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import shapely
+import shapely.affinity
 from shapely.geometry import Polygon, MultiPolygon, Point, box
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
@@ -39,7 +40,7 @@ TEST_GEOMETRY_DIR = (
 # anpassen. Bewusst BREIT gewaehlt (mehr Varianz -> bessere Lernkurve).
 
 # SHAPE_VERSION versioniert den GEOMETRIE-Katalog (Massbereiche, Formen).
-# ACHTUNG: ``make_catalog_instance`` bildet idx -> SHAPE_ORDER[idx % len]
+# ACHTUNG: ``make_catalog_instance`` bildet idx -> CATALOG_SLOTS[idx % len]
 # und seedet mit SHAPE_VERSION. Eine neue Familie oder ein neuer
 # Massbereich aendert damit JEDE Instanz -> alle Labels neu (der Stempel
 # ``params.params_hash`` enthaelt SHAPE_VERSION). Familien und Bereiche
@@ -49,7 +50,7 @@ TEST_GEOMETRY_DIR = (
 # sind Benchmarks ueber Versionen hinweg nicht mehr vergleichbar. Nur
 # erhoehen, wenn sich Formen/Massbereiche aendern (dann sind auch die
 # Label-Caches hinfaellig).
-SHAPE_VERSION = 6
+SHAPE_VERSION = 7         # 7: Familie "assembly" (24.09.2026), doppelt gewichtet
 CONTOUR_SPACING = 5.0     # wie im geometry_processor (Aussenpunkt-Abstand)
 GRID_SPACING = 2.5        # Rasterabstand der Innenpunkte
 
@@ -95,11 +96,29 @@ ATT_EXTRA_N = (0, 2)           # Anzahl zusaetzlicher Halbkreise/Rechtecke (inkl
 ATT_R = (2.5, 5.0)             # Radius Halbkreis (Schweissraupe) [mm]
 ATT_W = (8.0, 25.0)            # Rechteck: Breite entlang der Kante [mm]
 ATT_H = (4.0, 10.0)            # Rechteck: Auskragung [mm]
+# Baugruppe ("assembly", 24.09.2026): wildere Schweissbaugruppe auf einem
+# Basisprofil. Jede Instanz hat mindestens eine Bohrung/ein Langloch ODER ein
+# zweites angeschweisstes Profil, dazu immer Kehlnaehte und 1..3 Anbauten
+# (auch groessere Laschen, Rippen und Knotenbleche). Hoechstens EIN Loch
+# (PointGrid kennt nur eine Lochkontur).
+ASM_P_HOLE = 0.5               # Wahrscheinlichkeit Bohrung/Langloch
+ASM_P_SECOND = 0.5             # Wahrscheinlichkeit zweites Profil
+ASM_SECOND_W = (0.3, 0.8)      # Breite des Zweitprofils / Kantenlaenge
+ASM_WELD_P = 0.75
+ASM_WELD_LEG = (4.0, 14.0)
+ASM_EXTRA_N = (1, 3)
+ASM_LUG_W = (15.0, 60.0)       # Lasche/Rippe: Breite entlang der Kante [mm]
+ASM_LUG_H = (10.0, 40.0)       # Lasche/Rippe: Auskragung [mm]
+ASM_GUSSET_LEG = (15.0, 50.0)  # Knotenblech in einer Innenecke [mm]
+ASM_HOLE_R = (3.0, 12.0)       # Bohrungsradius [mm]
+ASM_SLOT_P = 0.35              # Anteil Langloch statt Bohrung
+ASM_SLOT_L = (10.0, 40.0)      # Langloch: Mittenabstand [mm]
+ASM_LIGAMENT = 5.0             # Mindeststeg Loch <-> Aussenkontur [mm]
 
 # Familien-IDs (fuer GroupKFold nach Formfamilie). "real" bleibt 4; IDs
 # frueherer Familien bleiben reserviert, neue nur ANHAENGEN.
 FAMILIES = {"flat": 0, "tprofile": 1, "hbeam": 2, "holland": 3, "real": 4,
-            "angle": 5, "channel": 6, "attached": 7}
+            "angle": 5, "channel": 6, "attached": 7, "assembly": 8}
 
 # ---------------------------------------------------------------------------
 # Grid-Bau aus Shapely-Polygon (spiegelt geometry_processor wider)
@@ -296,15 +315,17 @@ def _ring_ccw(poly: Polygon) -> np.ndarray:
     return ring
 
 
-def _attach_on_edge(rng, ring: np.ndarray, kind: str) -> Polygon | None:
-    """Kleines Rechteck oder Halbkreis auf einer Aussenkante."""
+def _attach_on_edge(rng, ring: np.ndarray, kind: str,
+                    w_rng=ATT_W, h_rng=ATT_H) -> Polygon | None:
+    """Kleines Rechteck oder Halbkreis auf einer Aussenkante (``w_rng``/
+    ``h_rng``: Rechteckmasse, bei "assembly" groesser)."""
     n = len(ring)
     edges = [(i, float(np.linalg.norm(ring[(i + 1) % n] - ring[i]))) for i in range(n)]
     if kind == "round":
         r = _u(rng, ATT_R)
         need = 2.0 * r + 6.0
     else:
-        w = _u(rng, ATT_W)
+        w = _u(rng, w_rng)
         need = w + 6.0
     long_edges = [i for i, L in edges if L >= need]
     if not long_edges:
@@ -322,14 +343,15 @@ def _attach_on_edge(rng, ring: np.ndarray, kind: str) -> Polygon | None:
     s0 = _u(rng, (3.0, L - w - 3.0))
     a = p0 + d * s0
     b = a + d * w
-    h = _u(rng, ATT_H)
+    h = _u(rng, h_rng)
     inset = nrm * 1.0                      # 1 mm ins Material, damit die Union sicher zusammenhaengt
     return Polygon([tuple(a - inset), tuple(b - inset), tuple(b + nrm * h), tuple(a + nrm * h)])
 
 
-def _weld_fillets(rng, ring: np.ndarray) -> list[Polygon]:
+def _weld_fillets(rng, ring: np.ndarray, p_weld: float = ATT_WELD_P,
+                  leg_rng=ATT_WELD_LEG) -> list[Polygon]:
     """Kehlnaht-Dreiecke in den Innenecken (einspringende Ecken), je Ecke
-    mit Wahrscheinlichkeit ``ATT_WELD_P``."""
+    mit Wahrscheinlichkeit ``p_weld``."""
     n = len(ring)
     out = []
     for i in range(n):
@@ -339,9 +361,9 @@ def _weld_fillets(rng, ring: np.ndarray) -> list[Polygon]:
         cross = float((-e_prev[0]) * e_next[1] - (-e_prev[1]) * e_next[0])
         if cross >= -1e-9:                      # keine einspringende Ecke
             continue
-        if rng.random() > ATT_WELD_P:
+        if rng.random() > p_weld:
             continue
-        leg = _u(rng, ATT_WELD_LEG)
+        leg = _u(rng, leg_rng)
         l1 = min(leg, 0.45 * float(np.linalg.norm(e_prev)))
         l2 = min(leg, 0.45 * float(np.linalg.norm(e_next)))
         u1 = e_prev / float(np.linalg.norm(e_prev))
@@ -370,6 +392,140 @@ def shape_attached(rng) -> Polygon:
     return Polygon(merged.exterior)         # keine eingeschlossenen Hohlraeume
 
 
+def _inner_corners(ring: np.ndarray) -> list[int]:
+    """Indizes der einspringenden Ecken eines CCW-Rings."""
+    n = len(ring)
+    out = []
+    for i in range(n):
+        a = ring[i] - ring[(i - 1) % n]
+        b = ring[(i + 1) % n] - ring[i]
+        if float(a[0] * b[1] - a[1] * b[0]) < -1e-9:
+            out.append(i)
+    return out
+
+
+def _gusset(rng, ring: np.ndarray) -> Polygon | None:
+    """Knotenblech: groesseres Dreieck in einer zufaelligen Innenecke."""
+    corners = _inner_corners(ring)
+    if not corners:
+        return None
+    n = len(ring)
+    i = int(rng.choice(corners))
+    c = ring[i]
+    e1, e2 = ring[(i - 1) % n] - c, ring[(i + 1) % n] - c
+    l1, l2 = float(np.linalg.norm(e1)), float(np.linalg.norm(e2))
+    leg = _u(rng, ASM_GUSSET_LEG)
+    a, b = min(leg, 0.7 * l1), min(leg * _u(rng, (0.6, 1.0)), 0.7 * l2)
+    if a < 3.0 or b < 3.0:
+        return None
+    u1, u2 = e1 / l1, e2 / l2
+    bis = -(u1 + u2)
+    bis = bis / max(1e-9, float(np.linalg.norm(bis)))
+    return Polygon([tuple(c + bis * 1.0), tuple(c + u1 * a), tuple(c + u2 * b)])
+
+
+def _second_profile(rng, ring: np.ndarray) -> Polygon | None:
+    """Zweites Profil (Flach, Winkel, T) mit seiner Unterseite auf eine
+    Aussenkante des Basisprofils geschweisst, Breite ``ASM_SECOND_W`` der
+    Kantenlaenge, 1 mm ins Material gesetzt (Union haengt sicher zusammen)."""
+    n = len(ring)
+    edges = [(i, float(np.linalg.norm(ring[(i + 1) % n] - ring[i])))
+             for i in range(n)]
+    long_edges = [i for i, L in edges if L >= 20.0]
+    if not long_edges:
+        return None
+    i = int(rng.choice(long_edges))
+    p0, p1 = ring[i], ring[(i + 1) % n]
+    L = float(np.linalg.norm(p1 - p0))
+    d = (p1 - p0) / L
+    nrm = np.array([d[1], -d[0]])            # CCW-Ring: nach aussen
+    kind = str(rng.choice(["flat", "angle", "tprofile"]))
+    sec = _largest_polygon(_BASE_BUILDERS[kind](rng).buffer(0))
+    k = int(rng.integers(0, 4))              # Lage: 0/90/180/270 Grad
+    sec = shapely.affinity.rotate(sec, 90.0 * k, origin=(0.0, 0.0))
+    if rng.random() < 0.5:
+        sec = shapely.affinity.scale(sec, xfact=-1.0, origin=(0.0, 0.0))
+    x0, y0, x1, y1 = sec.bounds
+    s = min(1.0, L * _u(rng, ASM_SECOND_W) / max(1e-9, x1 - x0))
+    sec = shapely.affinity.scale(sec, xfact=s, yfact=s, origin=(x0, y0))
+    x0, y0, x1, y1 = sec.bounds
+    off = _u(rng, (0.0, max(0.0, L - (x1 - x0))))
+    base = p0 + d * off - nrm * 1.0
+    # lokales (x, y) -> base + x * d + y * nrm
+    loc = np.asarray(sec.exterior.coords, dtype=float) - [x0, y0]
+    world = base + loc[:, :1] * d + loc[:, 1:2] * nrm
+    return Polygon(world).buffer(0)
+
+
+def _cut_hole(rng, poly: Polygon) -> Polygon:
+    """Eine Bohrung oder ein Langloch mit Mindeststeg ``ASM_LIGAMENT`` zur
+    Kontur; passt nichts, bleibt das Profil ungelocht."""
+    slot = rng.random() < ASM_SLOT_P
+    r = _u(rng, ASM_HOLE_R)
+    half = 0.5 * _u(rng, ASM_SLOT_L) if slot else 0.0
+    ang = (float(rng.choice([0.0, 90.0])) if rng.random() < 0.7
+           else _u(rng, (0.0, 180.0)))
+    for shrink in (1.0, 0.7, 0.5):
+        rr, hh = max(3.0, r * shrink), half * shrink
+        region = poly.buffer(-(rr + hh + ASM_LIGAMENT))
+        if region.is_empty or region.area < 1e-6:
+            continue
+        xmin, ymin, xmax, ymax = region.bounds
+        for _ in range(200):
+            x, y = _u(rng, (xmin, xmax)), _u(rng, (ymin, ymax))
+            if not region.contains(Point(x, y)):
+                continue
+            if hh > 0:
+                t = np.radians(ang)
+                dd = np.array([np.cos(t), np.sin(t)]) * hh
+                c = np.array([x, y])
+                hole = shapely.LineString([tuple(c - dd), tuple(c + dd)]).buffer(
+                    rr, quad_segs=8)
+            else:
+                hole = Point(x, y).buffer(rr, quad_segs=8)
+            return poly.difference(hole)
+    return poly
+
+
+def shape_assembly(rng) -> Polygon:
+    """Wilde Schweissbaugruppe: Basisprofil + (Loch und/oder zweites Profil)
+    + Kehlnaehte + 1..3 Anbauten (Halbkreis, Rechteck, Lasche/Rippe,
+    Knotenblech). Siehe ASM_*-Konstanten."""
+    base_name = str(rng.choice(list(_BASE_BUILDERS)))
+    poly = _largest_polygon(_BASE_BUILDERS[base_name](rng).buffer(0))
+    with_hole = rng.random() < ASM_P_HOLE
+    with_second = rng.random() < ASM_P_SECOND
+    if not (with_hole or with_second):
+        if rng.random() < 0.5:
+            with_hole = True
+        else:
+            with_second = True
+    parts = [poly]
+    if with_second:
+        sec = _second_profile(rng, _ring_ccw(poly))
+        if sec is not None and not sec.is_empty:
+            parts.append(sec)
+    cur = _largest_polygon(unary_union(parts).buffer(0))
+    parts = [cur] + _weld_fillets(rng, _ring_ccw(cur), ASM_WELD_P, ASM_WELD_LEG)
+    n_extra = int(rng.integers(ASM_EXTRA_N[0], ASM_EXTRA_N[1] + 1))
+    for _ in range(n_extra):
+        ring = _ring_ccw(_largest_polygon(unary_union(parts).buffer(0)))
+        kind = str(rng.choice(["round", "rect", "lug", "gusset"]))
+        if kind == "gusset":
+            piece = _gusset(rng, ring)
+        elif kind == "lug":
+            piece = _attach_on_edge(rng, ring, "rect", ASM_LUG_W, ASM_LUG_H)
+        else:
+            piece = _attach_on_edge(rng, ring, kind)
+        if piece is not None and not piece.is_empty:
+            parts.append(piece)
+    merged = _largest_polygon(unary_union(parts).buffer(0))
+    out = Polygon(merged.exterior)           # eingeschlossene Hohlraeume weg
+    if with_hole:
+        out = _cut_hole(rng, out)
+    return out
+
+
 _BASE_BUILDERS = {
     "flat": shape_flat,
     "angle": shape_angle,
@@ -378,10 +534,16 @@ _BASE_BUILDERS = {
     "holland": shape_holland,
     "hbeam": shape_hbeam,
 }
-SHAPE_BUILDERS = {**_BASE_BUILDERS, "attached": shape_attached}
-# Reihum-Reihenfolge der Katalogfamilien: NUR anhaengen (siehe SHAPE_VERSION).
+SHAPE_BUILDERS = {**_BASE_BUILDERS, "attached": shape_attached,
+                  "assembly": shape_assembly}
+# Katalogfamilien (je einmal, fuer Abbildungen/Auswertung): NUR anhaengen.
 SHAPE_ORDER = ["flat", "angle", "tprofile", "channel", "holland", "hbeam",
-               "attached"]
+               "attached", "assembly"]
+# Reihum-Slots von ``make_catalog_instance``: "assembly" soll im gelabelten
+# Datensatz doppelt so oft vorkommen wie jede andere Familie (Max,
+# 24.09.2026). ~40 % der assembly-Instanzen liegen ueber k_max 21 (too_big),
+# daher 3 von 10 Slots -> nach dem k-Filter etwa 2x.
+CATALOG_SLOTS = SHAPE_ORDER + ["assembly", "assembly"]
 
 
 def tag_instance(grid: PointGrid, family: str, name: str) -> PointGrid:
@@ -404,7 +566,7 @@ def load_test_geometries() -> list[PointGrid]:
 
 
 def make_catalog_instance(idx: int, seed: int = 0) -> PointGrid | None:
-    """Eine Katalog-Instanz, DETERMINISTISCH und STABIL ueber ``idx``.
+    """Eine Katalog-Instanz, DETERMINISTISCH und STABIL üeber ``idx``.
 
     Jede Instanz haengt nur von (seed, idx, SHAPE_VERSION) ab -- nicht von n
     und NICHT von der Label-Version: ein neues Zeitmodell darf dieselben
@@ -412,7 +574,7 @@ def make_catalog_instance(idx: int, seed: int = 0) -> PointGrid | None:
     So kann man inkrementell mehr Instanzen erzeugen, ohne die vorhandenen zu
     veraendern (Voraussetzung fuer den resumebaren Label-Cache).
     """
-    fam = SHAPE_ORDER[idx % len(SHAPE_ORDER)]
+    fam = CATALOG_SLOTS[idx % len(CATALOG_SLOTS)]
     rng = np.random.default_rng(
         (int(seed) & 0xFFFFFFFF) * 1_000_003 + idx * 131 + SHAPE_VERSION)
     poly = SHAPE_BUILDERS[fam](rng)

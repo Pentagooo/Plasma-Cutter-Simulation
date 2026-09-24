@@ -40,11 +40,13 @@ except ImportError:  # sehr alte sklearn-Versionen
 from sklearn.ensemble import GradientBoostingClassifier
 
 try:
-    from .features import FEATURE_NAMES
+    from .features import DEFAULT_MODEL_FEATURES, FEATURE_NAMES, select_features
 except ImportError:  # Direktstart ohne Paket-Kontext
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-    from plasma_cutter.segment_simulation.surrogate.features import FEATURE_NAMES
+    from plasma_cutter.segment_simulation.surrogate.features import (
+        DEFAULT_MODEL_FEATURES, FEATURE_NAMES, select_features,
+    )
 
 
 ARTIFACTS = Path(__file__).resolve().parent / "artifacts"
@@ -125,7 +127,7 @@ class SurrogateModel:
                  feature_names: list[str] | None = None):
         self.estimator = estimator
         self.tau = float(tau)
-        self.feature_names = list(feature_names or FEATURE_NAMES)
+        self.feature_names = list(feature_names or DEFAULT_MODEL_FEATURES)
 
     # ------------------------------------------------------------------
 
@@ -143,7 +145,7 @@ class SurrogateModel:
         ``holdout_family`` (Leave-one-family-out): Ist eine Familien-ID
         gesetzt, werden ALLE Zeilen dieser Familie vor dem Training entfernt.
         """
-        X = np.asarray(X, dtype=float)
+        X = select_features(np.asarray(X, dtype=float), self.feature_names)
         y = np.asarray(y, dtype=int)
         groups = np.asarray(groups, dtype=int)
         if out_dir is None:
@@ -213,7 +215,8 @@ class SurrogateModel:
         X = np.asarray(X, dtype=float)
         if X.shape[0] == 0:
             return np.zeros(0)
-        return self.estimator.predict_proba(X)[:, 1]
+        return self.estimator.predict_proba(
+            select_features(X, self.feature_names))[:, 1]
 
     def select(self, X: np.ndarray, tau: float | None = None) -> np.ndarray:
         """Boolesche Auswahlmaske S = {s : p(s) >= tau}."""
@@ -225,7 +228,8 @@ class SurrogateModel:
 # Training / Laden mit Herkunftsstempel
 # ---------------------------------------------------------------------------
 
-def train_model(out_dir: Path | None = None, random_state: int = 0) -> dict:
+def train_model(out_dir: Path | None = None, random_state: int = 0,
+                feature_names: list[str] | None = None) -> dict:
     """Trainiert auf ``<out_dir>/dataset.npz`` und speichert
     ``surrogate_model.joblib`` + ``model_meta.json`` mit Herkunftsstempel
     (label_version, k_max, seed, Instanz-/Zeilenzahl, CV-Kennzahlen)."""
@@ -244,12 +248,13 @@ def train_model(out_dir: Path | None = None, random_state: int = 0) -> dict:
                                         P.SEG_MIN_SPACINGS_DEFAULT)))
     P.check_stamp(found, expected, "dataset_meta.json", strict_seg=True)
     d = np.load(out_dir / "dataset.npz", allow_pickle=True)
-    model = SurrogateModel()
+    model = SurrogateModel(feature_names=feature_names)
     rep = model.train(d["X"], d["y"], d["groups"], out_dir=out_dir,
                       random_state=random_state)
     stamp = {**P.stamp(expected), "pricing": meta.get("pricing", "exact"),
              "k_max": meta.get("k_max"), "seed": meta.get("seed"),
              "n_instances": meta.get("n_instances_used"), "n_rows": rep.n_rows,
+             "feature_names": model.feature_names,
              "tau": rep.tau, "cv_recall_pos": rep.cv_recall_pos,
              "cv_precision_pos": rep.cv_precision_pos}
     joblib.dump({"estimator": model.estimator, "tau": model.tau,
@@ -282,11 +287,16 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Surrogat-Modell trainieren.")
     ap.add_argument("--train", action="store_true",
                     help="Training auf <out>/dataset.npz starten")
+    ap.add_argument("--features", type=str, default=None,
+                    help="Komma-Liste der Modellmerkmale (Default: "
+                         "DEFAULT_MODEL_FEATURES)")
     ap.add_argument("--out", type=str, default=None,
                     help="Ordner mit dataset.npz (Default: artifacts/)")
     args = ap.parse_args()
     if args.train:
-        train_model(Path(args.out) if args.out else None)
+        train_model(Path(args.out) if args.out else None,
+                    feature_names=(args.features.split(",")
+                                   if args.features else None))
     else:
         ap.print_help()
 

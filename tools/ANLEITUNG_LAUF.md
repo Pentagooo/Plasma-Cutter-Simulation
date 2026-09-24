@@ -1,7 +1,7 @@
 # Anleitung: Abschluss-Trainingslauf auf dem Ubuntu-Rechner
 
 Rechner: AMD Threadripper PRO 5965WX (24 Kerne / 48 Threads). Ziel: Phase 1
-in etwa 18 Stunden. GPU wird nicht gebraucht.
+in etwa 1,5 bis 2 Tagen (grosser Lauf v7, 24.09.2026). GPU wird nicht gebraucht.
 
 Alle Befehle im Programm **Terminal** (Strg+Alt+T) eingeben, jeweils eine
 Zeile, dann Enter. Zeilen, die mit `#` beginnen, sind Erklärungen.
@@ -41,7 +41,7 @@ Kontrolle: In der Ausgabe muss stehen
 und weiter unten `passed` bei den Tests. Steht ein anderer Hash, stimmen die
 Physikparameter nicht mit Windows überein: dann abbrechen und melden.
 
-## 3. Lauf starten (läuft dann etwa 18 Stunden allein)
+## 3. Lauf starten (läuft dann etwa 1,5 bis 2 Tage allein)
 
 ```bash
 cd ~/work
@@ -56,9 +56,9 @@ automatischen Standby ausschalten.
 
 Was Phase 1 macht, in dieser Reihenfolge:
 
-1. Testsätze labeln (seed 7, Standard- und feine Segmentierung), etwa 1 h.
-2. Hauptlauf: 4200 Katalog-Instanzen mit gemischter Segmentierung
-   (Segmentzahl 5 bis 20), Zeitbudget 15 h. Danach werden keine neuen
+1. Testsätze labeln (seed 7 und seed 11, je Standard- und feine Segmentierung), etwa 1 bis 2 h.
+2. Hauptlauf: 10 000 Katalog-Instanzen (Katalog v7 mit Familie "assembly")
+   mit gemischter Segmentierung (Segmentzahl bis 21), Zeitbudget 45 h. Danach werden keine neuen
    Instanzen begonnen, laufende rechnen zu Ende.
 3. Modell trainieren (Minuten).
 4. Benchmark auf beiden Testsätzen und Lernkurve (unter einer Stunde).
@@ -68,11 +68,11 @@ Was Phase 1 macht, in dieser Reihenfolge:
 ```bash
 cd ~/work
 tail -f logs/phase1.out            # live; Strg+C beendet nur die Anzeige
-ls plasma_cutter/segment_simulation/surrogate/artifacts/runs/main/labels | wc -l   # fertige Labels
+ls plasma_cutter/segment_simulation/surrogate/artifacts/runs/main_v7/labels | wc -l   # fertige Labels
 ```
 
 Im Log erscheint alle 100 Instanzen eine Zeile wie
-`[1200/4200] 7200s, ETA 18000s {'new': 1190, 'too_big': 10}`.
+`[1200/10000] 7200s, ETA 90000s {'new': 1050, 'too_big': 150}`.
 Am Ende steht `== phase1 fertig ==`.
 
 **Zwischenergebnis mit Modell** (jederzeit während des Laufs, dauert wenige
@@ -133,8 +133,8 @@ Ergebnisse zum Lesen: `runs\main\benchmark.md` (Standard-Segmentierung),
 
 ```bash
 N_MAIN=3000 nohup plasma_cutter/tools/run_final_training.sh phase1 > logs/phase1.out 2>&1 &   # weniger Instanzen
-BUDGET1_MIN=600 ...    # Label-Budget in Minuten (Voreinstellung 900 = 15 h)
-KMAX_MAIN=22 ...       # Segmentzahl bis 22 zulassen (deutlich teurer)
+BUDGET1_MIN=600 ...    # Label-Budget in Minuten (Voreinstellung 2700 = 45 h)
+KMAX_MAIN=20 ...       # Segmentzahl nur bis 20 (etwa halbe Kosten; Voreinstellung 21)
 NJOBS=40 ...           # Anzahl paralleler Worker (Voreinstellung: Threads minus 4)
 ```
 

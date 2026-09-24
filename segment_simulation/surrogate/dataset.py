@@ -36,7 +36,7 @@ import numpy as np
 
 try:
     from ...geometry.point_grid import PointGrid
-    from .features import FEATURE_NAMES, segment_features
+    from .features import FEATURE_NAMES, N_FEATURES, segment_features
     from .instances import (
         FAMILIES, TEST_GEOMETRY_DIR, default_cutter, make_catalog_instance,
         tag_instance,
@@ -51,7 +51,7 @@ except ImportError:  # Direktstart ohne Paket-Kontext
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
     from plasma_cutter.geometry.point_grid import PointGrid
     from plasma_cutter.segment_simulation.surrogate.features import (
-        FEATURE_NAMES, segment_features,
+        FEATURE_NAMES, N_FEATURES, segment_features,
     )
     from plasma_cutter.segment_simulation.surrogate.instances import (
         FAMILIES, TEST_GEOMETRY_DIR, default_cutter, make_catalog_instance,
@@ -391,6 +391,7 @@ def build_dataset(
     X_rows, y_rows, groups, inst_meta = [], [], [], []
     t_teacher_total = 0.0
     n_missing = 0
+    n_refeat = 0
     seen: set[str] = set()
 
     def _take(path: Path, strict: bool) -> bool:
@@ -417,6 +418,20 @@ def build_dataset(
         name = str(d["name"])
         if name in seen or d["X"].shape[0] == 0:
             return False
+        if d["X"].shape[1] != N_FEATURES:
+            # Merkmalsliste hat sich geaendert: Labels bleiben gueltig, X
+            # wird aus der Geometrie neu gerechnet und zurueckgeschrieben
+            # (gleiches wie ``--refeaturize``, nur je Datei bei Bedarf).
+            nonlocal n_refeat
+            if n_refeat == 0 and verbose:
+                print(f"  Merkmale: {d['X'].shape[1]} -> {N_FEATURES} Spalten, "
+                      f"X wird neu gerechnet (kein Relabel)", flush=True)
+            st = refeaturize_labels(path.parent, verbose=False, only=[path])
+            if st["ok"] != 1:
+                raise SystemExit(f"FEHLER: {path.name!a}: Merkmale konnten "
+                                 f"nicht neu gerechnet werden ({st})")
+            n_refeat += 1
+            d = np.load(path, allow_pickle=True)
         seen.add(name)
         X_rows.append(d["X"])
         y_rows.append(np.asarray(d["y"], dtype=int))
@@ -487,6 +502,65 @@ def build_dataset(
     return meta
 
 
+def spec_of_key(key: str) -> tuple:
+    """Instanz-Spec aus dem Dateinamen eines Labels (Umkehrung von
+    ``cache_key``): ``cat_s<seed>_i<idx>_...`` bzw. ``real_<stem>_...``."""
+    if key.startswith("cat_s"):
+        head = key.split("_L")[0]              # cat_s42_i17
+        seed, idx = head[5:].split("_i")
+        return ("cat", int(idx), int(seed))
+    stem = key[len("real_"):].rsplit("_L", 1)[0]
+    cands = [stem]
+    try:    # Dateiname kam als UTF-8 von Linux und wurde unter Windows als
+            # cp437 entpackt ("T-Tr├ñger" statt "T-Träger")
+        cands.append(stem.encode("cp437").decode("utf-8"))
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    for st in cands:
+        cand = Path(TEST_GEOMETRY_DIR) / f"{st}.json"
+        if cand.exists():
+            return ("real", str(cand))
+    raise FileNotFoundError(f"reale Geometrie {stem!a} nicht in {TEST_GEOMETRY_DIR}")
+
+
+def refeaturize_labels(label_dir: Path, verbose: bool = True,
+                       only: list | None = None) -> dict:
+    """Rechnet die Merkmalsmatrix X aller Labels in ``label_dir`` mit dem
+    AKTUELLEN ``segment_features`` neu und schreibt sie in die .npz zurueck.
+    Labels (y, T, Stempel) bleiben unveraendert -- noetig, wenn sich die
+    Merkmalsliste aendert (kein Relabel). Rueckgabe: Statuszaehler."""
+    label_dir = Path(label_dir)
+    files = [Path(f) for f in only] if only else sorted(label_dir.glob("*.npz"))
+    cutter = default_cutter()
+    status = {"ok": 0, "unchanged": 0, "mismatch": 0, "error": 0}
+    t0 = time.perf_counter()
+    for i, path in enumerate(files, 1):
+        try:
+            d = dict(np.load(path, allow_pickle=True))
+            spec = spec_of_key(path.stem)
+            p = label_params(float(d["seg_divisor"]), float(d["seg_min_spacings"]))
+            grid = _load_grid(spec)
+            contour = make_contour(grid, p)
+            if len(contour.segments) != len(d["y"]):
+                status["mismatch"] += 1
+                continue
+            X = segment_features(grid, contour, cutter)
+            if d["X"].shape == X.shape and np.allclose(d["X"], X):
+                status["unchanged"] += 1
+                continue
+            d["X"] = X
+            np.savez(path, **d)
+            status["ok"] += 1
+        except Exception as exc:          # einzelne Datei ueberspringen
+            status["error"] += 1
+            if verbose:
+                print(f"  {path.name!a}: {exc!a}")
+        if verbose and (i % 500 == 0 or i == len(files)):
+            print(f"  [{i}/{len(files)}] {time.perf_counter() - t0:.0f}s {status}",
+                  flush=True)
+    return status
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Datensatz mit dem Brute-Force-Lehrer labeln.")
@@ -517,11 +591,20 @@ def main() -> None:
                     help="nur Segmentzahlen je Familie ausgeben (kein Lehrer)")
     ap.add_argument("--low-priority", action="store_true",
                     help="Worker mit niedriger CPU-Prioritaet")
+    ap.add_argument("--refeaturize", type=str, action="append", default=[],
+                    help="Label-Ordner: Merkmale X aller Labels mit dem "
+                         "aktuellen features.py neu rechnen (kein Relabel), "
+                         "dann Ende")
     ap.add_argument("--keep-awake", action="store_true",
                     help="Windows-Standby waehrend des Laufs unterdruecken")
     args = ap.parse_args()
     mix = (parse_seg_mix(args.seg_mix) if args.seg_mix
            else [(args.seg_divisor, args.seg_min_spacings, 1.0)])
+    if args.refeaturize:
+        for d in args.refeaturize:
+            print(f"== refeaturize {d} ({N_FEATURES} Spalten)")
+            print("  ->", refeaturize_labels(Path(d)))
+        return
     if args.dry_run:
         dry_run(args.n, args.seed, args.k_max, mix, include_real=args.include_real)
         return
