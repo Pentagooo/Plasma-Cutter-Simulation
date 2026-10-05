@@ -23,10 +23,10 @@ class Cutter:
 
     def __init__(
         self,
-        cutting_speed: float = 5.0,
-        max_cutting_speed: float | None = None,
-        rapid_speed: float = 50.0,
-        minimum_gap: float = 3.0,
+        cutting_speed: float = 19.4,
+        max_cutting_speed: float | None = 34.7,
+        rapid_speed: float = 100.0,
+        minimum_gap: float = 3.6,
         t_switch: float = 0.0,
         assumptions: CuttingAssumptions | None = None,
     ) -> None:

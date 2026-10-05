@@ -47,8 +47,8 @@ class PierceTimeModel:
     k      : Zeit pro mm Blechstärke [s/mm]
     fixed  : wenn True wird thickness ignoriert (Konstante = t0)
     """
-    t0: float = 0.3     # Sekunden
-    k:  float = 0.05    # Sekunden pro mm
+    t0: float = 1.0     # Sekunden
+    k:  float = 0.0     # Sekunden pro mm
     fixed: bool = False
 
     def __call__(self, thickness: float = 0.0) -> float:
@@ -73,7 +73,7 @@ class CuttingAssumptions:
     pierce: PierceTimeModel  = field(default_factory=PierceTimeModel)
 
     # Materialbezogen (für Pierce + Vergleich mit L)
-    sheet_thickness: float = 12.0  # [mm]
+    sheet_thickness: float = 15.0  # [mm]
 
     # Globaler Schalter
     use_pierce_penalty: bool = True
