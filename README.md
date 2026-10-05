@@ -46,7 +46,8 @@ selbst erzeugen.
 Voraussetzung: Python ≥ 3.10 (getestet mit 3.14; unter Linux 3.12 empfohlen). Der Ordner **muss**
 `plasma_cutter` heißen (interne Importe `plasma_cutter.…`); Kommandos
 laufen aus dem **Elternordner**. Das mitgelieferte Modell ist mit
-scikit-learn 1.9 gespeichert (siehe `requirements.txt`).
+scikit-learn 1.9 gespeichert; mit einer anderen Version warnt scikit-learn
+beim Laden.
 
 ```bash
 git clone https://igm-git.igm.rwth-aachen.de/sherec/auto_cutting_primitives.git plasma_cutter
