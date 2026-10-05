@@ -89,9 +89,9 @@ class AutoPlanResult:
     n_candidates: int = 0
     n_selected: int = 0
     n_unreachable: int = 0
-    # Die gewaehlten Primitiv-Segmente (seg_ids, nach Pruning) -- erlaubt
+    # Die gewählten Primitiv-Segmente (seg_ids, nach Pruning) -- erlaubt
     # nachgelagerten Stufen (z.B. DP-Split der Simulation), die Auswahl
-    # segmentbasiert weiterzuverarbeiten statt nur ueber die Runs.
+    # segmentbasiert weiterzuverarbeiten statt nur über die Runs.
     selected_segments: list[int] = field(default_factory=list)
 
     def summary(self) -> str:

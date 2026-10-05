@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Einrichtung auf Ubuntu (Threadripper-Box) -- einmalig.
 #
-#   Voraussetzung: dieser Ordner heisst "plasma_cutter" (interne Importe
+#   Voraussetzung: dieser Ordner heißt "plasma_cutter" (interne Importe
 #   "plasma_cutter....") und liegt in einem Arbeitsordner $WORK, aus dem
 #   alle Kommandos laufen:
 #       $WORK/plasma_cutter/tools/setup_ubuntu.sh
 #
-#   Python 3.12 empfohlen (reine Python-Aufzaehlung ~25 % schneller als 3.10;
-#   3.10 laeuft ebenfalls). GPU wird nicht benutzt (Shapely + Held-Karp).
+#   Python 3.12 empfohlen (reine Python-Aufzählung ~25 % schneller als 3.10;
+#   3.10 läuft ebenfalls). GPU wird nicht benutzt (Shapely + Held-Karp).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,7 +25,7 @@ echo "Python: $($PY --version)  ($(command -v "$PY"))"
 
 if [[ "${INSTALL_APT:-0}" == "1" ]]; then
     sudo apt-get update
-    sudo apt-get install -y python3-venv python3-tk      # tk nur fuer Dialoge/Simulator
+    sudo apt-get install -y python3-venv python3-tk      # tk nur für Dialoge/Simulator
 fi
 
 cd "$HERE"

@@ -1,7 +1,7 @@
-"""Benchmark: Greedy+ / Surrogat (mit und ohne Pruning) / Brute Force.
+"""Benchmark: Automatic Planner / Surrogat (mit und ohne Pruning) / Brute Force.
 
 Ungesehene Instanzen (seed 7: n Katalog + reale Testgeometrien). Je
-Instanz: Ausfuehrungszeit T (deterministisch aus dem Zeitmodell),
+Instanz: Ausführungszeit T (deterministisch aus dem Zeitmodell),
 Coverage, Fallback, Planzeit (Best-of-``reps`` nach Warm-up). Das Optimum
 kommt vom Brute-Force-Lehrer -- entweder direkt (sequentiell, bis
 ``k_max``) oder aus einem vorher parallel gelabelten Ordner
@@ -87,8 +87,8 @@ def run_benchmark(model, n_instances: int = 30, seed: int = 7, reps: int = 3,
                   seg_divisor: float = SEG_DIVISOR_DEFAULT,
                   seg_min_spacings: float = SEG_MIN_SPACINGS_DEFAULT,
                   opt_labels_dir: Path | None = None) -> list[dict]:
-    """``with_teacher=False`` laesst das Optimum aus (Lernkurve: T_opt wird
-    dann aus einem gecachten Lauf uebernommen); ``opt_labels_dir`` nimmt
+    """``with_teacher=False`` lässt das Optimum aus (Lernkurve: T_opt wird
+    dann aus einem gecachten Lauf übernommen); ``opt_labels_dir`` nimmt
     das Optimum aus einem Label-Ordner statt den Lehrer zu rufen; ``stem``
     ist der Dateiname der CSV/MD-Ausgabe."""
     out_dir = Path(out_dir) if out_dir else ARTIFACTS
@@ -136,9 +136,9 @@ def run_benchmark(model, n_instances: int = 30, seed: int = 7, reps: int = 3,
                 pass
         rows.append(row)
         if verbose:
-            print(f"{name:16s} k={n_seg:2d}  T G+ {row['T_gplus']:6.2f}  "
+            print(f"{name:16s} k={n_seg:2d}  T AP {row['T_gplus']:6.2f}  "
                   f"sur {row['T_sur']:6.2f} (no-prune {row['T_sur_noprune']:6.2f})"
-                  f"  opt {row['T_opt']:6.2f}   plan ms G+ {t_gp*1e3:5.1f} "
+                  f"  opt {row['T_opt']:6.2f}   plan ms AP {t_gp*1e3:5.1f} "
                   f"sur {t_sp*1e3:5.1f}  opt {row['t_opt']:6.2f} s", flush=True)
 
     keys = list(rows[0].keys())
@@ -167,12 +167,12 @@ def _write_markdown(rows, path: Path, n_instances, seed, reps, p) -> None:
         f"t_switch {p.t_switch:g} s, v_cut {p.v_cut:g}, v_max {p.v_max:g} mm/s.",
         "",
         "| Verfahren | T Mittel [s] (n mit Optimum) | Luecke zum Optimum | "
-        "Planzeit Median [ms] | Planzeit Max [ms] | Coverage >= G+ | Fallback |",
+        "Planzeit Median [ms] | Planzeit Max [ms] | Coverage >= AP | Fallback |",
         "|---|--:|--:|--:|--:|--:|--:|",
     ]
     T_opt = mean("T_opt", has_opt)
     for label, tk, ck, fk, pk in (
-            ("Greedy+", "T_gplus", "cov_gplus", None, "t_gplus"),
+            ("Automatic Planner", "T_gplus", "cov_gplus", None, "t_gplus"),
             ("Surrogat (Pruning)", "T_sur", "cov_sur", "fb_sur", "t_sur"),
             ("Surrogat (ohne Pruning)", "T_sur_noprune", "cov_sur_noprune",
              "fb_sur_noprune", "t_sur_noprune"),
@@ -187,7 +187,7 @@ def _write_markdown(rows, path: Path, n_instances, seed, reps, p) -> None:
         max_ms = max(pv) * 1e3 if pv else math.nan
         lines.append(f"| {label} | {Tm:.2f} | {gap:.3f}x | {med_ms:.1f} | "
                      f"{max_ms:.0f} | {cov_ok}/{len(rows)} | {fb}/{len(rows)} |")
-    lines += ["", "| Instanz | k | T G+ | T sur | T sur o. Pruning | T opt | "
+    lines += ["", "| Instanz | k | T AP | T sur | T sur o. Pruning | T opt | "
               "gepruned | Teilmengen | Abdeckungen | t opt [s] |",
               "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|"]
     for r in rows:
@@ -202,7 +202,7 @@ def _write_markdown(rows, path: Path, n_instances, seed, reps, p) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Benchmark Greedy+ / Surrogat / Brute Force.")
+        description="Benchmark Automatic Planner / Surrogat / Brute Force.")
     ap.add_argument("--n", type=int, default=30)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--reps", type=int, default=3)
@@ -219,7 +219,7 @@ def main() -> None:
     ap.add_argument("--opt-labels", type=str, default=None,
                     help="Label-Ordner mit dem Optimum (statt Lehrer-Aufruf)")
     ap.add_argument("--no-teacher", action="store_true",
-                    help="kein Optimum (nur Greedy+ vs. Surrogat)")
+                    help="kein Optimum (nur Automatic Planner vs. Surrogat)")
     args = ap.parse_args()
     model = load_model(Path(args.model) if args.model else None)
     run_benchmark(model, n_instances=args.n, seed=args.seed, reps=args.reps,

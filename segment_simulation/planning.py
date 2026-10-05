@@ -9,34 +9,34 @@ Der TCP-Pfad muss ``clearance`` (= cutter.minimum_gap) Abstand zum
 Material halten -- wie in der bisherigen Simulation, jetzt aber
 AUTOMATISCH statt manuell:
 
-  1. Abheben:   vom Konturpunkt entlang der Aussennormale auf
+  1. Abheben:   vom Konturpunkt entlang der Außennormale auf
                 Sicherheitsabstand (Lead-out).
   2. Verfahren: Sichtbarkeitsgraph um das gepufferte Material-Polygon,
-                kuerzester Pfad via Dijkstra.
-  3. Anfahren:  von aussen auf den naechsten Konturpunkt (Lead-in).
+                kürzester Pfad via Dijkstra.
+  3. Anfahren:  von außen auf den nächsten Konturpunkt (Lead-in).
 
 Existiert kein kollisionsfreier 2D-Pfad (z.B. Ziel auf einer
-Lochkontur, die vollstaendig von Material umschlossen ist), ist der
-Uebergang INFEASIBLE: ``plan()`` gibt None zurueck. Der Brenner kann
-NICHT ueber das Material springen (Modellentscheidung, kein Z-Hub).
-Der Sequencer bewertet solche Uebergaenge mit unendlichen Kosten und
-wirft eine LinkInfeasibleError, wenn keine zulaessige Reihenfolge
+Lochkontur, die vollständig von Material umschlossen ist), ist der
+Übergang INFEASIBLE: ``plan()`` gibt None zurück. Der Brenner kann
+NICHT über das Material springen (Modellentscheidung, kein Z-Hub).
+Der Sequencer bewertet solche Übergänge mit unendlichen Kosten und
+wirft eine LinkInfeasibleError, wenn keine zulässige Reihenfolge
 existiert.
 
 Sequencer
 ---------
-Bringt die gewaehlten CutRuns in eine optimale Reihenfolge und
+Bringt die gewählten CutRuns in eine optimale Reihenfolge und
 Richtung. Zielfunktion = Gesamtzeit:
 
     sum(Schnittzeiten)            -- konstant
-  + sum(Eilgang-Zeiten)           -- abhaengig von Reihenfolge
-  + sum(Pierce-Pauschalen)        -- entfaellt wenn zwei Runs nahtlos
-                                     aneinander anschliessen
+  + sum(Eilgang-Zeiten)           -- abhängig von Reihenfolge
+  + sum(Pierce-Pauschalen)        -- entfällt wenn zwei Runs nahtlos
+                                     aneinander anschließen
 
-Loesung: exakt per Held-Karp-DP ueber (besuchte Menge, letzter Run,
-Richtung). Die Problemgroesse ist nach dem Verschmelzen zusammen-
-haengender Segmente klein (typisch wenige Runs), daher ist der exakte
-Loeser immer bezahlbar -- eine Heuristik-Rueckfallebene ist nicht noetig.
+Lösung: exakt per Held-Karp-DP über (besuchte Menge, letzter Run,
+Richtung). Die Problemgröße ist nach dem Verschmelzen zusammen-
+hängender Segmente klein (typisch wenige Runs), daher ist der exakte
+Löser immer bezahlbar -- eine Heuristik-Rückfallebene ist nicht nötig.
 """
 
 import heapq
@@ -80,13 +80,13 @@ TCP_SAMPLE_STEP = 3.0
 # der Ecke auf den Ring ist damit mathematisch mehrdeutig; ``project`` liefert
 # je nach Rundung den Anfang ODER das Ende des Bogens. Dem Run wurde so ein
 # ganzer Eckbogen (~pi/2 * clearance, bei 3 mm rund 4.7 mm bzw. 0.9 s)
-# zugeschlagen oder erlassen, richtungsabhaengig: spiegelbildliche Segmente
+# zugeschlagen oder erlassen, richtungsabhängig: spiegelbildliche Segmente
 # bekamen bis zu 13 % unterschiedliche Schnittzeiten.
 #
 # Regel: der TCP-Punkt zu einer Konturecke ist die Bogenmitte, also
-# ``p + clearance * Winkelhalbierende`` (nach aussen). Damit ist die Station
-# eindeutig, richtungsunabhaengig, fuer beide angrenzenden Segmente DIESELBE
-# (nahtloses Verketten bleibt erhalten) und der Eckbogen wird haelftig auf
+# ``p + clearance * Winkelhalbierende`` (nach außen). Damit ist die Station
+# eindeutig, richtungsunabhängig, für beide angrenzenden Segmente DIESELBE
+# (nahtloses Verketten bleibt erhalten) und der Eckbogen wird hälftig auf
 # die beiden Segmente aufgeteilt -- die Summe der Segmentzeiten ist wieder
 # die Zeit des durchgehenden Schnitts.
 
@@ -163,7 +163,7 @@ class RunKinematics:
                 self._rings = [offset_boundary]
             else:
                 self._rings = list(offset_boundary.geoms)
-            # Konturecken fuer die Eckenregel (ohne doppelten Schlusspunkt)
+            # Konturecken für die Eckenregel (ohne doppelten Schlusspunkt)
             geoms = (self._mat_boundary.geoms
                      if hasattr(self._mat_boundary, "geoms")
                      else [self._mat_boundary])
@@ -196,9 +196,9 @@ class RunKinematics:
 
         pts = run.polyline
         # Offset-Ring des Runs: der Ring, dem ALLE Konturpunkte des Runs am
-        # naechsten liegen (groesster Abstand ueber eine Stichprobe der
+        # nächsten liegen (größter Abstand über eine Stichprobe der
         # Punkte). Nur der Mittelpunkt reicht nicht: bei einem langen Bogen
-        # der Aussenkontur kann er naeher am Loch-Ring liegen, und der TCP
+        # der Außenkontur kann er näher am Loch-Ring liegen, und der TCP
         # liefe dann um das Loch statt um das Bauteil.
         sample = pts[::max(1, len(pts) // 8)]
         if len(sample) == 0 or not np.array_equal(sample[-1], pts[-1]):
@@ -213,17 +213,17 @@ class RunKinematics:
             return run
 
         # Projektions-Stationen ALLER Konturpunkte des Runs auf dem
-        # Offset-Ring, jeder ueber die Eckenregel (s.o.): auf einer Kante der
+        # Offset-Ring, jeder über die Eckenregel (s.o.): auf einer Kante der
         # Punkt selbst, auf einer Ecke die Bogenmitte. Diese Stationen werden
-        # Stuetzstellen des TCP-Pfads. Dadurch ist die Abtastung VERSCHACHTELT:
-        # der Pfad eines verschmolzenen Runs enthaelt an jedem inneren Knoten
-        # genau die Stuetzstelle, an der seine Einzelsegmente enden -- die
+        # Stützstellen des TCP-Pfads. Dadurch ist die Abtastung VERSCHACHTELT:
+        # der Pfad eines verschmolzenen Runs enthält an jedem inneren Knoten
+        # genau die Stützstelle, an der seine Einzelsegmente enden -- die
         # Swept Area des Merges ist exakt die Vereinigung der Einzelsegmente,
         # ein Merge kann nie Coverage verlieren (sonst kippt ein einzelner
-        # Abtastpunkt am Knoten den Merge und der Plan bekommt Zuendungen).
-        # Stuetzstellen = Segmentknoten (``run.node_positions``); ohne diese
+        # Abtastpunkt am Knoten den Merge und der Plan bekommt Zündungen).
+        # Stützstellen = Segmentknoten (``run.node_positions``); ohne diese
         # Information alle Konturpunkte. Alle Punkte liefern die Stationen
-        # fuer die Laufrichtung.
+        # für die Laufrichtung.
         n_pts = len(pts)
         if run.node_positions is None:
             key_idx = list(range(n_pts))
@@ -293,8 +293,8 @@ class RunKinematics:
             if nb < 1e-9:              # 180deg-Spitze: keine Halbierende
                 return p
             q = p + (b / nb) * self.clearance
-            # Richtung so drehen, dass sie VOM Material weg zeigt (Loecher
-            # laufen andersherum als die Aussenkontur).
+            # Richtung so drehen, dass sie VOM Material weg zeigt (Löcher
+            # laufen andersherum als die Außenkontur).
             if self.material is not None and self.material.contains(
                     Point(tuple(q))):
                 q = p - (b / nb) * self.clearance
@@ -304,7 +304,7 @@ class RunKinematics:
     @staticmethod
     def _unit_normal(edge: np.ndarray) -> np.ndarray:
         """Einheitsnormale (rechts der Kantenrichtung) -- Vorzeichen egal,
-        weil ``_offset_query`` die Richtung anschliessend prueft."""
+        weil ``_offset_query`` die Richtung anschließend prüft."""
         n = float(np.linalg.norm(edge))
         if n < 1e-12:
             return np.zeros(2)
@@ -359,7 +359,7 @@ class RunKinematics:
         forward_votes = sum(1 for d in diffs if d < S / 2)
         forward = forward_votes >= len(diffs) / 2
 
-        # Stuetzstellen: Ring-Vertices UND die Knoten-Stationen, in
+        # Stützstellen: Ring-Vertices UND die Knoten-Stationen, in
         # Laufreihenfolge (verschachtelte Abtastung, siehe ``attach``).
         inner = np.asarray(s_key[1:-1], dtype=float)
         if forward:
@@ -394,7 +394,7 @@ class RunKinematics:
     def _full_ring_path(self, ring: LineString,
                         s_vals: list[float]) -> list[np.ndarray]:
         """Kompletter Ring, umsortiert so dass er bei s_vals[0] beginnt und
-        endet; Stuetzstellen sind Ring-Vertices und die Stationen aller
+        endet; Stützstellen sind Ring-Vertices und die Stationen aller
         Konturpunkte (verschachtelte Abtastung, siehe ``attach``)."""
         S = float(ring.length)
         s0 = float(s_vals[0])

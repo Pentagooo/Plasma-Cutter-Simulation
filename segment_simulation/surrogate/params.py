@@ -1,23 +1,23 @@
-"""Label-relevante Parameter an EINER Stelle: Stempel fuer Labels, Datensatz
-und Modell (BA Kap. 5).
+"""Label-relevante Parameter an EINER Stelle: Stempel für Labels, Datensatz
+und Modell.
 
-Der Brute-Force-Lehrer bewertet jede Abdeckung mit der Pipeline aus Kap. 4.
+Der Brute-Force-Lehrer bewertet jede Abdeckung mit der Planungspipeline.
 Alles, was diese Bewertung beeinflusst -- Physik des Schneiders, Kerf,
 Abtastung der Swept Area, Punktdichte, Segmentierungsregel, Katalogversion --
 bestimmt die Labels. ``LabelParams`` sammelt diese Werte aus den Modulen, in
-denen sie definiert sind (``simulation.make_default_cutter`` ueber
+denen sie definiert sind (``simulation.make_default_cutter`` über
 ``instances.default_cutter``, ``planning.TCP_SAMPLE_STEP``, ``instances``,
 ``segments``); zwei Hashes davon wandern in jeden Label-Dateinamen, in
 ``dataset_meta.json`` und ins Modell:
 
   * ``phys_hash``   -- Physik + Kerf + Abtastung + Eckwinkel: MUSS zwischen
-                      Labels, Modell und laufendem Code uebereinstimmen.
-  * ``params_hash`` -- zusaetzlich Segmentierung, Punktdichte, Katalog:
-                      unterscheidet Datensaetze (z.B. feine Segmentierung);
+                      Labels, Modell und laufendem Code übereinstimmen.
+  * ``params_hash`` -- zusätzlich Segmentierung, Punktdichte, Katalog:
+                      unterscheidet Datensätze (z.B. feine Segmentierung);
                       beim Laden eines Modells nur eine Warnung.
 
-Aendert sich die Pipeline selbst (Zeitmodell, Bewertung), ``LABEL_VERSION``
-erhoehen; Parameteraenderungen erkennt der Hash von allein.
+Ändert sich die Pipeline selbst (Zeitmodell, Bewertung), ``LABEL_VERSION``
+erhöhen; Parameteränderungen erkennt der Hash von allein.
 """
 from __future__ import annotations
 
@@ -45,16 +45,16 @@ except ImportError:  # Direktstart ohne Paket-Kontext
         CONTOUR_SPACING, GRID_SPACING, SHAPE_VERSION, default_cutter,
     )
 
-# Version der Label-PIPELINE (Zeitmodell, Bewertung, Merkmale). Erhoehen,
-# wenn sich der Code so aendert, dass dieselben Parameter andere Labels
-# oder Merkmale ergeben. v2: Parameterstempel eingefuehrt (17.09.2026);
+# Version der Label-PIPELINE (Zeitmodell, Bewertung, Merkmale). Erhöhen,
+# wenn sich der Code so ändert, dass dieselben Parameter andere Labels
+# oder Merkmale ergeben. v2: Parameterstempel eingeführt (17.09.2026);
 # v3: verschachtelte TCP-Abtastung, Merge verliert nie Coverage (17.09.2026).
 LABEL_VERSION = 3
 
 # Schnittfugenbreite [mm] -- vorher ein impliziter Default in Lehrer/Planer.
 KERF = 3.0
 
-# Segmentierungsregel (segments.SegmentedContour): Ziellaenge =
+# Segmentierungsregel (segments.SegmentedContour): Ziellänge =
 # Umfang / SEG_DIVISOR, Untergrenze SEG_MIN_SPACINGS * Punktabstand.
 SEG_DIVISOR_DEFAULT = 12.0
 SEG_MIN_SPACINGS_DEFAULT = 4.0
@@ -138,24 +138,24 @@ def _digest(d: dict) -> str:
 
 
 def phys_hash(p: LabelParams) -> str:
-    """8 Hex-Zeichen ueber Physik + Kerf + Abtastung + Eckwinkel."""
+    """8 Hex-Zeichen über Physik + Kerf + Abtastung + Eckwinkel."""
     d = asdict(p)
     return _digest({k: d[k] for k in _PHYS_FIELDS})
 
 
 def params_hash(p: LabelParams) -> str:
-    """8 Hex-Zeichen ueber ALLE Felder (inkl. Segmentierung, Katalog)."""
+    """8 Hex-Zeichen über ALLE Felder (inkl. Segmentierung, Katalog)."""
     return _digest(asdict(p))
 
 
 def stamp(p: LabelParams) -> dict:
-    """Stempel fuer dataset_meta.json / model_meta.json / joblib."""
+    """Stempel für dataset_meta.json / model_meta.json / joblib."""
     return {"label_version": int(p.label_version), "phys_hash": phys_hash(p),
             "params_hash": params_hash(p), "params": asdict(p)}
 
 
 def from_stamp(found: dict) -> LabelParams | None:
-    """LabelParams aus einem gespeicherten Stempel (None, wenn unvollstaendig)."""
+    """LabelParams aus einem gespeicherten Stempel (None, wenn unvollständig)."""
     d = found.get("params") if isinstance(found, dict) else None
     if not isinstance(d, dict):
         return None

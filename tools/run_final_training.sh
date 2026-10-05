@@ -6,10 +6,10 @@
 #       nohup plasma_cutter/tools/run_final_training.sh phase2 > logs/phase2.out 2>&1 &
 #       plasma_cutter/tools/run_final_training.sh phase3
 #
-#   phase1  Testsaetze (seed 7, Standard 12/4 und fein 18/3) labeln (~1 h),
+#   phase1  Testsätze (seed 7, Standard 12/4 und fein 18/3) labeln (~1 h),
 #           dann Hauptlauf: N_MAIN Katalog-Instanzen mit gemischter
 #           Segmentierung (SEG_MIX, k 5..20) bis BUDGET1_MIN, Training,
-#           Benchmark auf beiden Testsaetzen, Lernkurve.   ~18 h gesamt
+#           Benchmark auf beiden Testsätzen, Lernkurve.   ~18 h gesamt
 #   phase2  Hauptlauf FORTSETZEN (Cache, weitere BUDGET2_MIN), neu trainieren,
 #           Benchmark + Lernkurve neu (nur wenn noch Zeit ist)
 #   phase3  nur Benchmarks + Lernkurve (nach Bedarf), dann collect_results.sh
@@ -17,24 +17,24 @@
 #   Jede Phase ist idempotent: Labels liegen je Instanz im Cache. Sanfter
 #   Stopp eines Label-Laufs: touch STOP (laufende Instanzen rechnen zu Ende).
 #   Zeitbudget stoppt nur das Einreichen neuer Instanzen; die bis dahin
-#   fertigen Labels sind eine zufaellige Teilmenge (Instanzreihenfolge ist
-#   ueber Familien und Segmentierungen gemischt).
+#   fertigen Labels sind eine zufällige Teilmenge (Instanzreihenfolge ist
+#   über Familien und Segmentierungen gemischt).
 #
 #   Kosten (CPU-s je Instanz, pessimistisch): k12 13, k14 64, k16 364, k18 1170,
-#   k20 ~4200, k21 ~7900. Grosser Lauf (24.09.2026, Katalog SHAPE_VERSION 7 mit
+#   k20 ~4200, k21 ~7900. Großer Lauf (24.09.2026, Katalog SHAPE_VERSION 7 mit
 #   Familie "assembly", 10 000 Instanzen, k_max 21): Dry-Run ~87 % <= k 21
 #   (~8 700 Labels, assembly ~1 870), 1 100-2 250 CPU-h -> 25-51 h bei 44
-#   Workern. Alle Ausgaben unter runs/*_$TAG (alte Laeufe bleiben unberuehrt).
+#   Workern. Alle Ausgaben unter runs/*_$TAG (alte Läufe bleiben unberührt).
 set -euo pipefail
 
 # ------------------------------------------------------------ Konfiguration
-NJOBS="${NJOBS:-$(( $(nproc) > 4 ? $(nproc) - 4 : $(nproc) ))}"   # 4 Threads fuer System/Assembly frei
+NJOBS="${NJOBS:-$(( $(nproc) > 4 ? $(nproc) - 4 : $(nproc) ))}"   # 4 Threads für System/Assembly frei
 TAG="${TAG:-v7}"                   # Suffix aller Laufordner (Katalog SHAPE_VERSION 7)
 N_MAIN="${N_MAIN:-10000}"          # 10 Slots: 7 Familien x 1000 + assembly 3000
 N_EVAL="${N_EVAL:-90}"             # Testinstanzen je Seed + reale Geometrien
 SEED_TRAIN=42
 SEED_EVAL=7
-SEED_EVAL2=11                      # zweiter, unabhaengiger Testsatz
+SEED_EVAL2=11                      # zweiter, unabhängiger Testsatz
 KMAX_MAIN="${KMAX_MAIN:-21}"
 SEG_MIX="${SEG_MIX:-12/4:0.50,14/4:0.25,16/3:0.20,18/3:0.05}"
 SEG_DIV_FINE="${SEG_DIV_FINE:-18}"  # feiner Testsatz
@@ -134,9 +134,9 @@ phase3() {
 }
 
 snapshot() {
-    # Zwischenstand WAEHREND des Laufs: aktuelle Labels einsammeln, Modell
+    # Zwischenstand WÄHREND des Laufs: aktuelle Labels einsammeln, Modell
     # trainieren, Benchmark auf dem Standard-Testsatz (falls schon gelabelt).
-    # Stoert den laufenden Label-Prozess nicht (liest nur den Cache).
+    # Stört den laufenden Label-Prozess nicht (liest nur den Cache).
     SNAP="$RUNS/snapshot_${TAG}_$(date +%H%M)"
     echo "== snapshot -> $SNAP =="
     train_env

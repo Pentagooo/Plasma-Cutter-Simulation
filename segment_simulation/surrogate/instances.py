@@ -1,12 +1,12 @@
-"""Trainings- und Benchmark-Instanzen (BA Kap. 5).
+"""Trainings- und Benchmark-Instanzen.
 
 * ``generate_instances``   -- parametrischer Katalog von Strukturelementen
-  (Flachstahl, T-Profil, Doppel-T, Hollandprofil-Naeherung) mit seedbar
-  variierten Massen PLUS die geprueften Testgeometrien (Familie "real").
+  (Flachstahl, T-Profil, Doppel-T, Hollandprofil-Näherung) mit seedbar
+  variierten Maßen PLUS die geprüften Testgeometrien (Familie "real").
 * ``make_catalog_instance`` -- Instanz ``idx`` deterministisch und stabil
-  ueber (seed, idx, SHAPE_VERSION); Basis des resumebaren Label-Caches.
+  über (seed, idx, SHAPE_VERSION); Basis des resumebaren Label-Caches.
 * ``grid_from_polygon``     -- PointGrid aus einem Shapely-Polygon (spiegelt
-  ``geometry_processor`` wider: Aussenkontur -> Loch -> Innenraster).
+  ``geometry_processor`` wider: Außenkontur -> Loch -> Innenraster).
 * ``default_cutter``        -- der Standard-Cutter des Simulators (lazy).
 """
 from __future__ import annotations
@@ -34,27 +34,27 @@ TEST_GEOMETRY_DIR = (
 )
 
 # ---------------------------------------------------------------------------
-# Katalog-Massbereiche [mm]
+# Katalog-Maßbereiche [mm]
 # ---------------------------------------------------------------------------
-# TODO(Projektwerte): Bereiche final an die real vorkommenden Profilmasse
-# anpassen. Bewusst BREIT gewaehlt (mehr Varianz -> bessere Lernkurve).
+# TODO(Projektwerte): Bereiche final an die real vorkommenden Profilmaße
+# anpassen. Bewusst BREIT gewählt (mehr Varianz -> bessere Lernkurve).
 
-# SHAPE_VERSION versioniert den GEOMETRIE-Katalog (Massbereiche, Formen).
+# SHAPE_VERSION versioniert den GEOMETRIE-Katalog (Maßbereiche, Formen).
 # ACHTUNG: ``make_catalog_instance`` bildet idx -> CATALOG_SLOTS[idx % len]
 # und seedet mit SHAPE_VERSION. Eine neue Familie oder ein neuer
-# Massbereich aendert damit JEDE Instanz -> alle Labels neu (der Stempel
-# ``params.params_hash`` enthaelt SHAPE_VERSION). Familien und Bereiche
-# muessen vor dem Start eines Label-Laufs final sein.
+# Maßbereich ändert damit JEDE Instanz -> alle Labels neu (der Stempel
+# ``params.params_hash`` enthält SHAPE_VERSION). Familien und Bereiche
+# müssen vor dem Start eines Label-Laufs final sein.
 # Bewusst getrennt von der Label-Version des Lehrers (``teacher.LABEL_VERSION``):
-# eine Aenderung am Zeitmodell darf die Instanzen nicht umwuerfeln, sonst
-# sind Benchmarks ueber Versionen hinweg nicht mehr vergleichbar. Nur
-# erhoehen, wenn sich Formen/Massbereiche aendern (dann sind auch die
-# Label-Caches hinfaellig).
+# eine Änderung am Zeitmodell darf die Instanzen nicht umwürfeln, sonst
+# sind Benchmarks über Versionen hinweg nicht mehr vergleichbar. Nur
+# erhöhen, wenn sich Formen/Maßbereiche ändern (dann sind auch die
+# Label-Caches hinfällig).
 SHAPE_VERSION = 7         # 7: Familie "assembly" (24.09.2026), doppelt gewichtet
-CONTOUR_SPACING = 5.0     # wie im geometry_processor (Aussenpunkt-Abstand)
+CONTOUR_SPACING = 5.0     # wie im geometry_processor (Außenpunkt-Abstand)
 GRID_SPACING = 2.5        # Rasterabstand der Innenpunkte
 
-# Katalog nach Normprofilen (Max, 18.09.2026). Massbereiche = uebliche
+# Katalog nach Normprofilen (Max, 18.09.2026). Maßbereiche = übliche
 # Lieferbereiche der jeweiligen Norm, oben so gekappt, dass Punktzahl und
 # Lehrerzeit vertretbar bleiben. Ecken sind scharf (keine Ausrundungen).
 #
@@ -62,14 +62,14 @@ GRID_SPACING = 2.5        # Rasterabstand der Innenpunkte
 FLAT_WIDTH = (100.0, 400.0)
 FLAT_THICK = (6.0, 40.0)
 # Winkelprofil (DIN EN 10056-1, gleich- und ungleichschenklig):
-# Schenkel a, Verhaeltnis b/a (1.0 = gleichschenklig), Dicke t/a
+# Schenkel a, Verhältnis b/a (1.0 = gleichschenklig), Dicke t/a
 L_A = (30.0, 200.0)
 L_RATIO = (0.5, 1.0)          # b = a * ratio; 50 % der Instanzen gleichschenklig
 L_T_REL = (0.06, 0.12)        # t = a * rel, mindestens 3 mm
-# T-Profil (EN 10055, hochstegig, b = h): Hoehe h, Dicke t = h * rel
+# T-Profil (EN 10055, hochstegig, b = h): Höhe h, Dicke t = h * rel
 T_H = (30.0, 140.0)
 T_T_REL = (0.09, 0.12)
-# U-Profil (UPN/U/CH nach DIN EN 10365): Hoehe h; b, tw, tf aus h abgeleitet
+# U-Profil (UPN/U/CH nach DIN EN 10365): Höhe h; b, tw, tf aus h abgeleitet
 # (UPN 100: b 50 / tw 6 / tf 8.5; UPN 300: b 100 / tw 10 / tf 16)
 U_H = (40.0, 300.0)
 U_B_REL = (0.23, 0.33)        # b  = h * rel (+ Streuung)
@@ -79,31 +79,31 @@ U_TF_REL = (0.045, 0.065)     # tf = h * rel, mindestens 5 mm
 HP_H = (80.0, 300.0)
 HP_T = (5.0, 16.0)
 HP_W = (1.6, 2.6)             # Auskragung des Wulsts als Vielfaches von t
-HP_HB = (0.12, 0.22)          # Wulsthoehe als Anteil der Steghoehe h
-# H-Profil (HEA/HEB nach DIN EN 10365): Hoehe h, b/h, tw/h, tf/h
+HP_HB = (0.12, 0.22)          # Wulsthöhe als Anteil der Steghöhe h
+# H-Profil (HEA/HEB nach DIN EN 10365): Höhe h, b/h, tw/h, tf/h
 # (HEB 100: b 100 / tw 6 / tf 10; HEB 300: b 300 / tw 11 / tf 19)
 H_H = (100.0, 300.0)
 H_B_REL = (0.85, 1.0)
 H_TW_REL = (0.03, 0.045)
 H_TF_REL = (0.055, 0.075)
-# Anbauten = Schweissnaehte und kleine Anschweissteile an einem Basisprofil:
-#   * Kehlnaht: kleines Dreieck in (fast) jeder Innenecke (Steg/Flansch-Uebergang)
-#   * gelegentlich ein kleiner Halbkreis (Schweissraupe, Bolzen) auf einer Kante
+# Anbauten = Schweißnähte und kleine Anschweißteile an einem Basisprofil:
+#   * Kehlnaht: kleines Dreieck in (fast) jeder Innenecke (Steg/Flansch-Übergang)
+#   * gelegentlich ein kleiner Halbkreis (Schweißraupe, Bolzen) auf einer Kante
 #   * gelegentlich ein kleines Rechteck (Lasche, Steife) auf einer Kante
-ATT_WELD_P = 0.75              # Wahrscheinlichkeit je Innenecke fuer eine Kehlnaht
+ATT_WELD_P = 0.75              # Wahrscheinlichkeit je Innenecke für eine Kehlnaht
 ATT_WELD_LEG = (4.0, 10.0)     # Schenkel der Kehlnaht [mm]
-ATT_EXTRA_N = (0, 2)           # Anzahl zusaetzlicher Halbkreise/Rechtecke (inkl.)
-ATT_R = (2.5, 5.0)             # Radius Halbkreis (Schweissraupe) [mm]
+ATT_EXTRA_N = (0, 2)           # Anzahl zusätzlicher Halbkreise/Rechtecke (inkl.)
+ATT_R = (2.5, 5.0)             # Radius Halbkreis (Schweißraupe) [mm]
 ATT_W = (8.0, 25.0)            # Rechteck: Breite entlang der Kante [mm]
 ATT_H = (4.0, 10.0)            # Rechteck: Auskragung [mm]
-# Baugruppe ("assembly", 24.09.2026): wildere Schweissbaugruppe auf einem
+# Baugruppe ("assembly", 24.09.2026): wildere Schweißbaugruppe auf einem
 # Basisprofil. Jede Instanz hat mindestens eine Bohrung/ein Langloch ODER ein
-# zweites angeschweisstes Profil, dazu immer Kehlnaehte und 1..3 Anbauten
-# (auch groessere Laschen, Rippen und Knotenbleche). Hoechstens EIN Loch
+# zweites angeschweißtes Profil, dazu immer Kehlnähte und 1..3 Anbauten
+# (auch größere Laschen, Rippen und Knotenbleche). Höchstens EIN Loch
 # (PointGrid kennt nur eine Lochkontur).
 ASM_P_HOLE = 0.5               # Wahrscheinlichkeit Bohrung/Langloch
 ASM_P_SECOND = 0.5             # Wahrscheinlichkeit zweites Profil
-ASM_SECOND_W = (0.3, 0.8)      # Breite des Zweitprofils / Kantenlaenge
+ASM_SECOND_W = (0.3, 0.8)      # Breite des Zweitprofils / Kantenlänge
 ASM_WELD_P = 0.75
 ASM_WELD_LEG = (4.0, 14.0)
 ASM_EXTRA_N = (1, 3)
@@ -113,10 +113,10 @@ ASM_GUSSET_LEG = (15.0, 50.0)  # Knotenblech in einer Innenecke [mm]
 ASM_HOLE_R = (3.0, 12.0)       # Bohrungsradius [mm]
 ASM_SLOT_P = 0.35              # Anteil Langloch statt Bohrung
 ASM_SLOT_L = (10.0, 40.0)      # Langloch: Mittenabstand [mm]
-ASM_LIGAMENT = 5.0             # Mindeststeg Loch <-> Aussenkontur [mm]
+ASM_LIGAMENT = 5.0             # Mindeststeg Loch <-> Außenkontur [mm]
 
-# Familien-IDs (fuer GroupKFold nach Formfamilie). "real" bleibt 4; IDs
-# frueherer Familien bleiben reserviert, neue nur ANHAENGEN.
+# Familien-IDs (für GroupKFold nach Formfamilie). "real" bleibt 4; IDs
+# früherer Familien bleiben reserviert, neue nur ANHÄNGEN.
 FAMILIES = {"flat": 0, "tprofile": 1, "hbeam": 2, "holland": 3, "real": 4,
             "angle": 5, "channel": 6, "attached": 7, "assembly": 8}
 
@@ -126,7 +126,7 @@ FAMILIES = {"flat": 0, "tprofile": 1, "hbeam": 2, "holland": 3, "real": 4,
 
 def _densify_ring(points: np.ndarray, max_dist: float) -> np.ndarray:
     """Verdichtet einen geschlossenen Ring (offene, geordnete Punktfolge),
-    so dass keine Kante laenger als ``max_dist`` ist (zyklisch)."""
+    so dass keine Kante länger als ``max_dist`` ist (zyklisch)."""
     pts = np.asarray(points, dtype=float)
     n = len(pts)
     out: list[np.ndarray] = []
@@ -143,7 +143,7 @@ def _densify_ring(points: np.ndarray, max_dist: float) -> np.ndarray:
 
 
 def _inner_grid(poly: Polygon, spacing: float) -> np.ndarray:
-    """Gleichmaessiges Punktraster innerhalb ``poly`` (vektorisiert)."""
+    """Gleichmäßiges Punktraster innerhalb ``poly`` (vektorisiert)."""
     xmin, ymin, xmax, ymax = poly.bounds
     xs = np.arange(xmin + spacing / 2, xmax, spacing)
     ys = np.arange(ymin + spacing / 2, ymax, spacing)
@@ -173,7 +173,7 @@ def grid_from_polygon(
 ) -> PointGrid | None:
     """Baut ein ``PointGrid`` aus einem Shapely-Polygon.
 
-    Reihenfolge der Punkte: Aussenkontur -> (max. eine) Lochkontur ->
+    Reihenfolge der Punkte: Außenkontur -> (max. eine) Lochkontur ->
     Innenraster. Genau die Reihenfolge, auf die sich ``PointGrid``/
     ``SegmentedContour`` verlassen.
     """
@@ -235,7 +235,7 @@ def shape_angle(rng) -> Polygon:
 
 
 def shape_tprofile(rng) -> Polygon:
-    """T-Profil EN 10055: Flanschbreite = Hoehe = h, Steg- und
+    """T-Profil EN 10055: Flanschbreite = Höhe = h, Steg- und
     Flanschdicke t."""
     h = _u(rng, T_H)
     t = max(3.0, h * _u(rng, T_T_REL))
@@ -245,7 +245,7 @@ def shape_tprofile(rng) -> Polygon:
 
 
 def shape_channel(rng) -> Polygon:
-    """U-Profil UPN/U/CH (DIN EN 10365): Steg (Hoehe h, Dicke tw) mit zwei
+    """U-Profil UPN/U/CH (DIN EN 10365): Steg (Höhe h, Dicke tw) mit zwei
     Flanschen (Breite b, Dicke tf) nach +x."""
     h = _u(rng, U_H)
     b = h * _u(rng, U_B_REL) + 20.0
@@ -260,22 +260,22 @@ def shape_channel(rng) -> Polygon:
 def shape_holland(rng) -> Polygon:
     """Wulstflachstahl DIN EN 10067 (HP-Profil).
 
-    Steg = Rechteck (Hoehe h, Dicke t); die Seite x=-t/2 bleibt ueber die
-    volle Hoehe gerade. Wulst = Keil an der OBERkante, der nur nach +x
-    auskragt: entlang der Steg-Aussenkante von h-hb bis h, oben bis
+    Steg = Rechteck (Höhe h, Dicke t); die Seite x=-t/2 bleibt über die
+    volle Höhe gerade. Wulst = Keil an der OBERkante, der nur nach +x
+    auskragt: entlang der Steg-Außenkante von h-hb bis h, oben bis
     x = t/2 + w, die Spitze durch einen einbeschriebenen Kreisbogen
     gerundet. Am Wulst ist das Profil damit deutlich dicker als der Steg.
     """
     h, t = _u(rng, HP_H), _u(rng, HP_T)
     w = t * _u(rng, HP_W)                  # einseitige Auskragung
-    hb = h * _u(rng, HP_HB)                # Hoehe des Wulstansatzes
+    hb = h * _u(rng, HP_HB)                # Höhe des Wulstansatzes
     web = box(-t / 2, 0.0, t / 2, h)
     tip = np.array([t / 2 + w, h])
     u_top = np.array([-1.0, 0.0])                    # entlang der Oberkante
     hyp_len = float(np.hypot(w, hb))
     u_hyp = np.array([-w, -hb]) / hyp_len            # entlang der Hypotenuse
     theta = float(np.arccos(np.clip(np.dot(u_top, u_hyp), -1.0, 1.0)))
-    tau = 0.30 * min(w, hyp_len)                     # Tangentenlaenge
+    tau = 0.30 * min(w, hyp_len)                     # Tangentenlänge
     rr = tau * np.tan(theta / 2.0)                   # Rundungsradius
     bis = u_top + u_hyp
     bis /= np.linalg.norm(bis)
@@ -294,7 +294,7 @@ def shape_holland(rng) -> Polygon:
 
 
 def shape_hbeam(rng) -> Polygon:
-    """H-Profil HEA/HEB (DIN EN 10365): Hoehe h, Flanschbreite b, Steg tw,
+    """H-Profil HEA/HEB (DIN EN 10365): Höhe h, Flanschbreite b, Steg tw,
     Flansch tf; Flansche oben und unten."""
     h = _u(rng, H_H)
     b = h * _u(rng, H_B_REL)
@@ -310,15 +310,15 @@ _BASE_BUILDERS = None   # wird unten gesetzt (nach den Basisformen)
 
 
 def _ring_ccw(poly: Polygon) -> np.ndarray:
-    """Aussenring gegen den Uhrzeigersinn, ohne doppelten Schlusspunkt."""
+    """Außenring gegen den Uhrzeigersinn, ohne doppelten Schlusspunkt."""
     ring = np.asarray(orient(poly, sign=1.0).exterior.coords, dtype=float)[:-1]
     return ring
 
 
 def _attach_on_edge(rng, ring: np.ndarray, kind: str,
                     w_rng=ATT_W, h_rng=ATT_H) -> Polygon | None:
-    """Kleines Rechteck oder Halbkreis auf einer Aussenkante (``w_rng``/
-    ``h_rng``: Rechteckmasse, bei "assembly" groesser)."""
+    """Kleines Rechteck oder Halbkreis auf einer Außenkante (``w_rng``/
+    ``h_rng``: Rechteckmaße, bei "assembly" größer)."""
     n = len(ring)
     edges = [(i, float(np.linalg.norm(ring[(i + 1) % n] - ring[i]))) for i in range(n)]
     if kind == "round":
@@ -335,7 +335,7 @@ def _attach_on_edge(rng, ring: np.ndarray, kind: str,
     d = p1 - p0
     L = float(np.linalg.norm(d))
     d = d / L
-    nrm = np.array([d[1], -d[0]])          # bei CCW-Ring zeigt (dy,-dx) nach aussen
+    nrm = np.array([d[1], -d[0]])          # bei CCW-Ring zeigt (dy,-dx) nach außen
     if kind == "round":
         s0 = _u(rng, (r + 3.0, L - r - 3.0))
         centre = p0 + d * s0
@@ -344,7 +344,7 @@ def _attach_on_edge(rng, ring: np.ndarray, kind: str,
     a = p0 + d * s0
     b = a + d * w
     h = _u(rng, h_rng)
-    inset = nrm * 1.0                      # 1 mm ins Material, damit die Union sicher zusammenhaengt
+    inset = nrm * 1.0                      # 1 mm ins Material, damit die Union sicher zusammenhängt
     return Polygon([tuple(a - inset), tuple(b - inset), tuple(b + nrm * h), tuple(a + nrm * h)])
 
 
@@ -356,7 +356,7 @@ def _weld_fillets(rng, ring: np.ndarray, p_weld: float = ATT_WELD_P,
     out = []
     for i in range(n):
         c = ring[i]
-        e_prev = ring[(i - 1) % n] - c          # zurueck entlang der Vorgaengerkante
+        e_prev = ring[(i - 1) % n] - c          # zurück entlang der Vorgängerkante
         e_next = ring[(i + 1) % n] - c
         cross = float((-e_prev[0]) * e_next[1] - (-e_prev[1]) * e_next[0])
         if cross >= -1e-9:                      # keine einspringende Ecke
@@ -375,9 +375,9 @@ def _weld_fillets(rng, ring: np.ndarray, p_weld: float = ATT_WELD_P,
 
 
 def shape_attached(rng) -> Polygon:
-    """Basisprofil (eine der sechs Normfamilien) mit Schweissnaehten:
+    """Basisprofil (eine der sechs Normfamilien) mit Schweißnähten:
     Kehlnaht-Dreiecke in den Innenecken, dazu 0..2 kleine Halbkreise oder
-    Rechtecke auf Aussenkanten."""
+    Rechtecke auf Außenkanten."""
     base_name = str(rng.choice(list(_BASE_BUILDERS)))
     poly = _largest_polygon(_BASE_BUILDERS[base_name](rng).buffer(0))
     parts = [poly] + _weld_fillets(rng, _ring_ccw(poly))
@@ -389,7 +389,7 @@ def shape_attached(rng) -> Polygon:
         if piece is not None and not piece.is_empty:
             parts.append(piece)
     merged = _largest_polygon(unary_union(parts).buffer(0))
-    return Polygon(merged.exterior)         # keine eingeschlossenen Hohlraeume
+    return Polygon(merged.exterior)         # keine eingeschlossenen Hohlräume
 
 
 def _inner_corners(ring: np.ndarray) -> list[int]:
@@ -405,7 +405,7 @@ def _inner_corners(ring: np.ndarray) -> list[int]:
 
 
 def _gusset(rng, ring: np.ndarray) -> Polygon | None:
-    """Knotenblech: groesseres Dreieck in einer zufaelligen Innenecke."""
+    """Knotenblech: größeres Dreieck in einer zufälligen Innenecke."""
     corners = _inner_corners(ring)
     if not corners:
         return None
@@ -426,8 +426,8 @@ def _gusset(rng, ring: np.ndarray) -> Polygon | None:
 
 def _second_profile(rng, ring: np.ndarray) -> Polygon | None:
     """Zweites Profil (Flach, Winkel, T) mit seiner Unterseite auf eine
-    Aussenkante des Basisprofils geschweisst, Breite ``ASM_SECOND_W`` der
-    Kantenlaenge, 1 mm ins Material gesetzt (Union haengt sicher zusammen)."""
+    Außenkante des Basisprofils geschweißt, Breite ``ASM_SECOND_W`` der
+    Kantenlänge, 1 mm ins Material gesetzt (Union hängt sicher zusammen)."""
     n = len(ring)
     edges = [(i, float(np.linalg.norm(ring[(i + 1) % n] - ring[i])))
              for i in range(n)]
@@ -438,7 +438,7 @@ def _second_profile(rng, ring: np.ndarray) -> Polygon | None:
     p0, p1 = ring[i], ring[(i + 1) % n]
     L = float(np.linalg.norm(p1 - p0))
     d = (p1 - p0) / L
-    nrm = np.array([d[1], -d[0]])            # CCW-Ring: nach aussen
+    nrm = np.array([d[1], -d[0]])            # CCW-Ring: nach außen
     kind = str(rng.choice(["flat", "angle", "tprofile"]))
     sec = _largest_polygon(_BASE_BUILDERS[kind](rng).buffer(0))
     k = int(rng.integers(0, 4))              # Lage: 0/90/180/270 Grad
@@ -488,8 +488,8 @@ def _cut_hole(rng, poly: Polygon) -> Polygon:
 
 
 def shape_assembly(rng) -> Polygon:
-    """Wilde Schweissbaugruppe: Basisprofil + (Loch und/oder zweites Profil)
-    + Kehlnaehte + 1..3 Anbauten (Halbkreis, Rechteck, Lasche/Rippe,
+    """Wilde Schweißbaugruppe: Basisprofil + (Loch und/oder zweites Profil)
+    + Kehlnähte + 1..3 Anbauten (Halbkreis, Rechteck, Lasche/Rippe,
     Knotenblech). Siehe ASM_*-Konstanten."""
     base_name = str(rng.choice(list(_BASE_BUILDERS)))
     poly = _largest_polygon(_BASE_BUILDERS[base_name](rng).buffer(0))
@@ -520,7 +520,7 @@ def shape_assembly(rng) -> Polygon:
         if piece is not None and not piece.is_empty:
             parts.append(piece)
     merged = _largest_polygon(unary_union(parts).buffer(0))
-    out = Polygon(merged.exterior)           # eingeschlossene Hohlraeume weg
+    out = Polygon(merged.exterior)           # eingeschlossene Hohlräume weg
     if with_hole:
         out = _cut_hole(rng, out)
     return out
@@ -536,12 +536,12 @@ _BASE_BUILDERS = {
 }
 SHAPE_BUILDERS = {**_BASE_BUILDERS, "attached": shape_attached,
                   "assembly": shape_assembly}
-# Katalogfamilien (je einmal, fuer Abbildungen/Auswertung): NUR anhaengen.
+# Katalogfamilien (je einmal, für Abbildungen/Auswertung): NUR anhängen.
 SHAPE_ORDER = ["flat", "angle", "tprofile", "channel", "holland", "hbeam",
                "attached", "assembly"]
 # Reihum-Slots von ``make_catalog_instance``: "assembly" soll im gelabelten
 # Datensatz doppelt so oft vorkommen wie jede andere Familie (Max,
-# 24.09.2026). ~40 % der assembly-Instanzen liegen ueber k_max 21 (too_big),
+# 24.09.2026). ~40 % der assembly-Instanzen liegen über k_max 21 (too_big),
 # daher 3 von 10 Slots -> nach dem k-Filter etwa 2x.
 CATALOG_SLOTS = SHAPE_ORDER + ["assembly", "assembly"]
 
@@ -554,7 +554,7 @@ def tag_instance(grid: PointGrid, family: str, name: str) -> PointGrid:
 
 
 def load_test_geometries() -> list[PointGrid]:
-    """Die 6 vorhandenen, geprueften Testgeometrien."""
+    """Die 6 vorhandenen, geprüften Testgeometrien."""
     out: list[PointGrid] = []
     for p in sorted(TEST_GEOMETRY_DIR.glob("*.json")):
         try:
@@ -568,11 +568,11 @@ def load_test_geometries() -> list[PointGrid]:
 def make_catalog_instance(idx: int, seed: int = 0) -> PointGrid | None:
     """Eine Katalog-Instanz, DETERMINISTISCH und STABIL üeber ``idx``.
 
-    Jede Instanz haengt nur von (seed, idx, SHAPE_VERSION) ab -- nicht von n
+    Jede Instanz hängt nur von (seed, idx, SHAPE_VERSION) ab -- nicht von n
     und NICHT von der Label-Version: ein neues Zeitmodell darf dieselben
-    Geometrien neu labeln, ohne sie zu veraendern.
+    Geometrien neu labeln, ohne sie zu verändern.
     So kann man inkrementell mehr Instanzen erzeugen, ohne die vorhandenen zu
-    veraendern (Voraussetzung fuer den resumebaren Label-Cache).
+    verändern (Voraussetzung für den resumebaren Label-Cache).
     """
     fam = CATALOG_SLOTS[idx % len(CATALOG_SLOTS)]
     rng = np.random.default_rng(
@@ -581,7 +581,7 @@ def make_catalog_instance(idx: int, seed: int = 0) -> PointGrid | None:
     grid = grid_from_polygon(poly)
     if grid is None:
         return None
-    grid._catalog_idx = int(idx)          # fuer dataset.spec_of_grid
+    grid._catalog_idx = int(idx)          # für dataset.spec_of_grid
     return tag_instance(grid, fam, f"{fam}_{idx:05d}")
 
 
@@ -590,9 +590,9 @@ def generate_instances(n: int, seed: int = 0,
     """Erzeugt ``n`` (stabile) Katalog-Instanzen + optional die 6 Testgeometrien.
 
     Die Katalogformen werden reihum aus ``SHAPE_ORDER`` gezogen und in ihren
-    Massen seedbar variiert; Instanz ``i`` ist ueber ``make_catalog_instance``
-    stabil (unabhaengig von n). Zusaetzlich werden die realen Testgeometrien
-    angehaengt (Familie "real").
+    Maßen seedbar variiert; Instanz ``i`` ist über ``make_catalog_instance``
+    stabil (unabhängig von n). Zusätzlich werden die realen Testgeometrien
+    angehängt (Familie "real").
     """
     out: list[PointGrid] = []
     for i in range(n):

@@ -1,9 +1,9 @@
-"""Tests der DP-Split-Stufe (Kap. 4.5 + t_switch).
+"""Tests der DP-Split-Stufe (Geschwindigkeitsregel + t_switch).
 
 Abgedeckt:
-  * Grenzfaelle: t_switch = inf -> 1 Block (altes Merge-Verhalten);
+  * Grenzfälle: t_switch = inf -> 1 Block (altes Merge-Verhalten);
     t_switch = 0 -> voll gesplittete Zeit (Summe len_i / v_i).
-  * Optimalitaet: DP-Ergebnis == Brute-Force-Enumeration aller
+  * Optimalität: DP-Ergebnis == Brute-Force-Enumeration aller
     2^(m-1) Partitionen kleiner Ketten (m <= 10).
   * Coverage-Erhalt: die exakt verifizierten Sub-Runs einer Kette
     (``build_speed_chains``) decken die Singleton-Masken der Auswahl ab.
@@ -63,8 +63,8 @@ def test_tswitch_inf_is_single_block():
 
 
 def test_tswitch_zero_is_fully_split():
-    """t_switch = 0 => Zeit der vollstaendigen Zerlegung (jedes Segment
-    faehrt seine eigene Geschwindigkeit); gleich schnelle Nachbarn duerfen
+    """t_switch = 0 => Zeit der vollständigen Zerlegung (jedes Segment
+    fährt seine eigene Geschwindigkeit); gleich schnelle Nachbarn dürfen
     per Tie-Break zusammengefasst sein (gleiche Zeit)."""
     rng = np.random.default_rng(2)
     for m in (2, 5, 9):
@@ -76,7 +76,7 @@ def test_tswitch_zero_is_fully_split():
 
 
 def test_dp_matches_bruteforce_enumeration():
-    """Optimalitaet der Partition gegen vollstaendige Enumeration
+    """Optimalität der Partition gegen vollständige Enumeration
     (m <= 10, mehrere t_switch-Werte)."""
     rng = np.random.default_rng(3)
     for m in range(2, 11):
@@ -94,7 +94,7 @@ def test_dp_matches_bruteforce_enumeration():
 
 
 def test_dp_monotone_in_t_switch():
-    """Hoeheres t_switch darf die optimale Zeit nie senken."""
+    """Höheres t_switch darf die optimale Zeit nie senken."""
     rng = np.random.default_rng(4)
     lengths, depths = _rand_chain(rng, 8)
     totals = [split_group_for_speed(lengths, depths, PHYS, ts)[2]
@@ -134,7 +134,7 @@ def test_chain_coverage_preserved_after_split():
 
 def test_plan_accounts_switch_time():
     """SpeedPlan weist t_switch separat aus; Bilanz ist konsistent und
-    Makro-Knoten-Invariante haelt (Sub-Runs > Ketten, Pierces = Ketten)."""
+    Makro-Knoten-Invariante hält (Sub-Runs > Ketten, Pierces = Ketten)."""
     grid, cutter, phys, contour, material, coords = _setup_geometry()
     selected = [s.seg_id for s in contour.segments]
     t_switch = 3.0
@@ -149,7 +149,7 @@ def test_plan_accounts_switch_time():
         plan.cut_time + plan.travel_time + plan.pierce_time
         + plan.switch_time)
     assert plan.switch_time == pytest.approx(t_switch * plan.n_switches)
-    # Kein Pierce zwischen Sub-Runs derselben Kette: Zuendungen <= Ketten
+    # Kein Pierce zwischen Sub-Runs derselben Kette: Zündungen <= Ketten
     assert plan.n_pierces <= len(chains)
     # Geschwindigkeitswechsel nur an Sub-Run-Grenzen
     assert plan.n_switches <= max(0, len(plan.ordered_runs) - len(chains))

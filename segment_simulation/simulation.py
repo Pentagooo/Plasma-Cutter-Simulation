@@ -1,54 +1,54 @@
 from __future__ import annotations
 
-"""Interaktive Segment-Simulation fuer den Plasma-Schnitt (Lichtschwert).
+"""Interaktive Segment-Simulation für den Plasma-Schnitt (Lichtschwert).
 
 Modell
 ------
-  - Der TCP (Brennergriff) haelt den konstanten Mindestabstand
-    ``MINIMUM_GAP`` zum Material und faehrt auf dem Offset-Pfad um die
+  - Der TCP (Brennergriff) hält den konstanten Mindestabstand
+    ``MINIMUM_GAP`` zum Material und fährt auf dem Offset-Pfad um die
     Kontur.
   - Die Klinge (Plasmastrahl) ragt vom TCP in Richtung Objekt. Ihre
-    Laenge ist LINEAR geschwindigkeitsabhaengig:
+    Länge ist LINEAR geschwindigkeitsabhängig:
         L(v) = blade_length - blade_slope * v
-    Sowohl die Grundlaenge als auch die maximale Geschwindigkeit sind
+    Sowohl die Grundlänge als auch die maximale Geschwindigkeit sind
     einstellbar (CLI: --blade-length, --blade-slope, --v-max, --v-cut).
-  - Ziel ist es, ALLE Punkte der Querschnittsflaeche (Innen- UND
-    Aussenpunkte) zu ueberstreichen -- nicht nur die Kontur. Die
-    Coverage wird ueber die Swept Areas der Klinge berechnet.
+  - Ziel ist es, ALLE Punkte der Querschnittsfläche (Innen- UND
+    Außenpunkte) zu überstreichen -- nicht nur die Kontur. Die
+    Coverage wird über die Swept Areas der Klinge berechnet.
   - Punktezahl (Score): besteht vor allem aus der Zeit -- weniger Zeit
     ist besser (siehe planning.compute_score).
 
 Ablauf
 ------
 1. Die Kontur wird automatisch in Segmente unterteilt; die Segment-
-   Knoten (weisse Kreise) sind die moeglichen Start-/Endpunkte.
-2. Linksklick #1: Startpunkt waehlen (snappt auf den naechsten Knoten).
+   Knoten (weiße Kreise) sind die möglichen Start-/Endpunkte.
+2. Linksklick #1: Startpunkt wählen (snappt auf den nächsten Knoten).
    Linksklick #2: Endpunkt -> der Konturbogen dazwischen wird als
-   Schnitt-Segment uebernommen. Zweimal derselbe Knoten = ganzer Loop.
+   Schnitt-Segment übernommen. Zweimal derselbe Knoten = ganzer Loop.
 3. Das Panel zeigt live die Querschnitts-Coverage; fehlende Punkte
    werden rot markiert.
 4. Enter: Sequencer ordnet die Segmente optimal, der LinkPlanner
-   verbindet sie kollisionsfrei, die Ausfuehrung wird animiert und am
+   verbindet sie kollisionsfrei, die Ausführung wird animiert und am
    Ende gibt es die Punktezahl.
 
 Bedienung
 ---------
-  Linksklick  : Start-/Endpunkt waehlen
+  Linksklick  : Start-/Endpunkt wählen
   Rechtsklick / U : letztes Segment entfernen
-  A           : alle restlichen Konturen komplett auswaehlen
-  P / Button  : Greedy+ (Greedy Set Cover + Pruning des AutoPlanner;
-                mit Regel 4.5 AN dieselbe DP-Split-Geschwindigkeitsstufe
+  A           : alle restlichen Konturen komplett auswählen
+  P / Button  : Automatic Planner (Greedy Set Cover + Pruning des AutoPlanner;
+                mit Geschwindigkeitsregel AN dieselbe DP-Split-Geschwindigkeitsstufe
                 wie Surrogat und Brute Force, AUS = Basisgeschwindigkeit)
   S / Button  : Surrogat (gelerntes Modell ordnet die Segmente, Greedy
                 Set Cover auf exakten Masken, ein Planbau, exakter Verify,
                 Fallback auf die Greedy-Auswahl)
   B / Button  : Brute Force (exakte, zeitminimale Segmentauswahl;
-                vollstaendige Aufzaehlung aller Teilmengen -- derselbe
+                vollständige Aufzählung aller Teilmengen -- derselbe
                 Lehrer, mit dem die Trainingslabels entstehen)
-  V / Button  : Regel 4.5 an/aus (Geschwindigkeitszuweisung je Run,
-                Kap. 4.5; wirkt auf Planung, Animation und alle Planer)
+  V / Button  : Geschwindigkeitsregel an/aus (Geschwindigkeitszuweisung je
+                Run; wirkt auf Planung, Animation und alle Planer)
   Enter       : Planen + Simulation starten
-  R           : alles zuruecksetzen
+  R           : alles zurücksetzen
   Esc         : Auswahl/Animation abbrechen
   +/- / Slider: Animations-Geschwindigkeit
 """
@@ -137,16 +137,16 @@ DEFAULT_MAX_CUTTING_SPEED = 34.7  # maximale Schnittgeschwindigkeit v_max
 RAPID_SPEED = 100.0               # Eilgang zwischen Schnitten
 
 # Zeitaufschlag je Geschwindigkeitswechsel IM laufenden Schnitt [s]
-# (Roboterrampe + Lichtbogen-Transient; Kap. 4.5, t_switch).
+# (Roboterrampe + Lichtbogen-Transient; t_switch).
 SPEED_SWITCH_TIME = 0.0
 
-# Zuendung (Pierce): t_pierce = PIERCE_T0 + PIERCE_K * SHEET_THICKNESS
+# Zündung (Pierce): t_pierce = PIERCE_T0 + PIERCE_K * SHEET_THICKNESS
 PIERCE_T0 = 1.0               # [s]
-PIERCE_K = 0.0                # [s/mm] (Pauschale, dickenunabhaengig)
+PIERCE_K = 0.0                # [s/mm] (Pauschale, dickenunabhängig)
 SHEET_THICKNESS = 15.0        # Nennblechdicke [mm]
 
-# ALLE Werte dieses Blocks sind label-relevant: eine Aenderung macht die
-# Trainingslabels und das Surrogat-Modell ungueltig. ``surrogate.params``
+# ALLE Werte dieses Blocks sind label-relevant: eine Änderung macht die
+# Trainingslabels und das Surrogat-Modell ungültig. ``surrogate.params``
 # stempelt sie (phys_hash) in Labels, Datensatz und Modell; ``load_model``
 # und ``train_model`` brechen bei Abweichung ab.
 
@@ -203,9 +203,9 @@ def make_default_cutter(
 
 
 def _surrogate_tools():
-    """Lazy-Import der Planer-Helfer (Regel 4.5, Greedy+/Surrogat/Brute Force).
+    """Lazy-Import der Planer-Helfer (Geschwindigkeitsregel, Automatic Planner/Surrogat/Brute Force).
 
-    Erst beim ersten Gebrauch importieren: haelt den Simulationsstart
+    Erst beim ersten Gebrauch importieren: hält den Simulationsstart
     schlank (scipy/sklearn werden nur bei Bedarf geladen) und vermeidet
     einen Import-Zyklus (das surrogate-Paket importiert seinerseits
     ``make_default_cutter`` aus diesem Modul lazy).
@@ -419,7 +419,7 @@ class SegmentCutSimulation:
         self._anim_mask: np.ndarray | None = None
         self._status_msg = ""
 
-        # Regel 4.5 (Kap. 4.5): Geschwindigkeitszuweisung je Run.
+        # Geschwindigkeitsregel: Geschwindigkeitszuweisung je Run.
         #   _use_rule45 : Schalter (Button/Taste V). AUS = bisheriges
         #                 Verhalten, alle Runs mit cutter.cutting_speed.
         #   _run_speeds : run_id -> zugewiesene Geschwindigkeit [mm/s],
@@ -427,10 +427,10 @@ class SegmentCutSimulation:
         #   _chain_sel  : Segment-Auswahl (seg_ids) hinter der aktuellen
         #                 Run-Liste, wenn sie von einem Planer stammt
         #                 (Taste P/S/B). Nur dann kann Enter die
-        #                 DP-Split-Kettenausfuehrung nutzen (Sub-Runs mit
+        #                 DP-Split-Kettenausführung nutzen (Sub-Runs mit
         #                 eigener Geschwindigkeit, nahtlos ohne Pierce)
-        #                 -- dieselbe Semantik wie Lehrer/Greedy+/Surrogat.
-        #                 None = manuelle Auswahl -> Regel 4.5 je Run.
+        #                 -- dieselbe Semantik wie Lehrer/Automatic Planner/Surrogat.
+        #                 None = manuelle Auswahl -> Geschwindigkeitsregel je Run.
         self._use_rule45 = False
         self._run_speeds: dict[int, float] = {}
         self._chain_sel: list[int] | None = None
@@ -440,8 +440,8 @@ class SegmentCutSimulation:
 
         # matplotlib-Handles, erst in run() befüllt (vorher None):
         # Hauptachse (Zeichnung), Statistik-Panel rechts sowie die
-        # Bedien-Widgets (Speed-Slider, Reset-, Greedy+-, Surrogat-,
-        # Brute-Force- und Regel-4.5-Button).
+        # Bedien-Widgets (Speed-Slider, Reset-, Automatic Planner-, Surrogat-,
+        # Brute-Force- und Geschwindigkeitsregel-Button).
         self._fig: plt.Figure | None = None
         self._ax_main: plt.Axes | None = None
         self._ax_stats: plt.Axes | None = None
@@ -529,8 +529,8 @@ class SegmentCutSimulation:
         ``_redraw()`` zeichnet den Startzustand, ``plt.show()`` blockiert
         bis zum Fensterschluss.
         """
-        # Matplotlib-Standardtasten freimachen: 's' waere "Speichern",
-        # 'p' waere "Pan" -- hier sind es Surrogat und Greedy+.
+        # Matplotlib-Standardtasten freimachen: 's' wäre "Speichern",
+        # 'p' wäre "Pan" -- hier sind es Surrogat und Automatic Planner.
         plt.rcParams["keymap.save"] = ["ctrl+s"]
         plt.rcParams["keymap.pan"] = []
 
@@ -544,7 +544,7 @@ class SegmentCutSimulation:
         self._ax_main = self._fig.add_subplot(gs[0])
         self._ax_stats = self._fig.add_subplot(gs[1])
 
-        ax_speed = self._fig.add_axes([0.10, 0.04, 0.27, 0.03])
+        ax_speed = self._fig.add_axes([0.10, 0.04, 0.19, 0.03])
         self._speed_slider = Slider(
             ax=ax_speed, label="Sim speed ",
             valmin=0.25, valmax=16.0, valinit=1.0,
@@ -552,7 +552,7 @@ class SegmentCutSimulation:
             color="#0066CC")
         self._speed_slider.on_changed(self._on_speed)
 
-        ax_reset = self._fig.add_axes([0.415, 0.035, 0.075, 0.045])
+        ax_reset = self._fig.add_axes([0.337, 0.035, 0.075, 0.045])
         self._reset_button = Button(
             ax_reset, "Reset (R)", color="#F0D0D0", hovercolor="#E0A0A0")
         self._reset_button.label.set_fontsize(9)
@@ -560,25 +560,25 @@ class SegmentCutSimulation:
 
         # Die drei automatischen Auswahlverfahren nebeneinander (die
         # manuelle Auswahl ist der Klick in die Zeichnung).
-        ax_gp = self._fig.add_axes([0.497, 0.035, 0.105, 0.045])
+        ax_gp = self._fig.add_axes([0.419, 0.035, 0.165, 0.045])
         self._gp_button = Button(
-            ax_gp, "Greedy+ (P)", color="#D0DEF0", hovercolor="#A8C4E4")
+            ax_gp, "Automatic planner (P)", color="#D0DEF0", hovercolor="#A8C4E4")
         self._gp_button.label.set_fontsize(9)
         self._gp_button.on_clicked(lambda _evt: self._greedy_select())
 
-        ax_sur = self._fig.add_axes([0.609, 0.035, 0.105, 0.045])
+        ax_sur = self._fig.add_axes([0.591, 0.035, 0.105, 0.045])
         self._sur_button = Button(
             ax_sur, "Surrogate (S)", color="#D0DEF0", hovercolor="#A8C4E4")
         self._sur_button.label.set_fontsize(9)
         self._sur_button.on_clicked(lambda _evt: self._surrogate_select())
 
-        ax_bf = self._fig.add_axes([0.721, 0.035, 0.115, 0.045])
+        ax_bf = self._fig.add_axes([0.703, 0.035, 0.115, 0.045])
         self._bf_button = Button(
             ax_bf, "Brute force (B)", color="#D0DEF0", hovercolor="#A8C4E4")
         self._bf_button.label.set_fontsize(9)
         self._bf_button.on_clicked(lambda _evt: self._brute_force_select())
 
-        ax_rule = self._fig.add_axes([0.843, 0.035, 0.137, 0.045])
+        ax_rule = self._fig.add_axes([0.825, 0.035, 0.155, 0.045])
         self._rule_button = Button(ax_rule, "", color="#E0E0E0",
                                    hovercolor="#C8C8C8")
         self._rule_button.label.set_fontsize(9)
@@ -654,7 +654,7 @@ class SegmentCutSimulation:
         self._runs.append(run)
         self._plan = None
         self._score = None
-        self._chain_sel = None   # manuelle Aenderung: keine Planer-Auswahl mehr
+        self._chain_sel = None   # manuelle Änderung: keine Planer-Auswahl mehr
         return run
 
     # ------------------------------------------------------------------
@@ -761,10 +761,10 @@ class SegmentCutSimulation:
           Esc  : Animation stoppen bzw. laufende Auswahl abbrechen
           U    : letztes Segment entfernen
           A    : alle restlichen Konturen automatisch wählen
-          P    : Greedy+ (Greedy Set Cover + Pruning)
+          P    : Automatic Planner (Greedy Set Cover + Pruning)
           S    : Surrogat (gelerntes Modell + exakte Nachrechnung)
           B    : Brute Force (vollständige Aufzählung aller Teilmengen)
-          V    : Regel 4.5 an/aus (Geschwindigkeitszuweisung je Run)
+          V    : Geschwindigkeitsregel an/aus (Geschwindigkeitszuweisung je Run)
           Enter: planen und Simulation starten
 
         Wie umgesetzt
@@ -848,7 +848,7 @@ class SegmentCutSimulation:
             removed = self._runs.pop()
             self._plan = None
             self._score = None
-            self._chain_sel = None   # Auswahl manuell veraendert
+            self._chain_sel = None   # Auswahl manuell verändert
             self._status_msg = f"Segment R{removed.run_id} removed."
         self._redraw()
 
@@ -934,17 +934,17 @@ class SegmentCutSimulation:
         return [((g[0] - 1) % n, (g[-1] + 1) % n) for g in groups]
 
     def _greedy_select(self) -> None:
-        """Greedy+ (Taste P / Button): Greedy Set Cover + Pruning des
+        """Automatic Planner (Taste P / Button): Greedy Set Cover + Pruning des
         ``AutoPlanner`` (siehe autoplan.py) ersetzt die aktuelle Auswahl.
 
-        Die Segment-Auswahl wird in ``_chain_sel`` gemerkt: mit Regel 4.5
+        Die Segment-Auswahl wird in ``_chain_sel`` gemerkt: mit Geschwindigkeitsregel
         AN nutzt Enter dann die DP-Split-Kettenausführung -- exakt die
         Geschwindigkeitsstufe von ``surrogate.planner.greedy_plus_plan``,
-        Surrogat und Brute Force (fairer Vergleich). Mit Regel 4.5 AUS
+        Surrogat und Brute Force (fairer Vergleich). Mit Geschwindigkeitsregel AUS
         fahren alle Runs Basisgeschwindigkeit (klassischer Greedy-Planer).
         Enter startet danach wie gewohnt die Planung + Animation.
         """
-        self._status_msg = "Greedy+ running ..."
+        self._status_msg = "Automatic planner running ..."
         self._draw_stats()
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()
@@ -964,7 +964,7 @@ class SegmentCutSimulation:
         self._pending = None
         self._run_speeds = {}
         # Segment-Auswahl merken -> Enter kann die DP-Split-Ketten-
-        # ausfuehrung nutzen (gleiche Semantik wie greedy_plus_plan).
+        # ausführung nutzen (gleiche Semantik wie greedy_plus_plan).
         self._chain_sel = list(result.selected_segments) or None
         self._state = _State.IDLE
 
@@ -972,7 +972,7 @@ class SegmentCutSimulation:
         print(result.summary())
         cov = result.report.fraction if result.report else 0.0
         self._status_msg = (
-            f"Greedy+: {len(result.runs)} cut(s), "
+            f"Automatic planner: {len(result.runs)} cut(s), "
             f"coverage {cov:.1%}, {result.elapsed:.2f} s "
             f"-- press Enter to start.")
         self._redraw()
@@ -989,7 +989,7 @@ class SegmentCutSimulation:
         dem die Trainingslabels entstehen (bei 14 Segmenten ~1 min, bei
         16 einige Minuten). Der Lehrer ist exakt im Raum Auswahl x
         Reihenfolge x Richtung bei DIESER Segmentierung. Steht der
-        Regel-4.5-Schalter auf AN, ist die Geschwindigkeitszuweisung
+        Geschwindigkeitsregel-Schalter auf AN, ist die Geschwindigkeitszuweisung
         (DP-Split je Kette) Teil der Zielfunktion; sonst wird die reine
         Basis-Zeit minimiert. Enter startet danach wie gewohnt die
         Planung + Animation.
@@ -1000,7 +1000,7 @@ class SegmentCutSimulation:
         Segmentierung wie in der Anzeige). Die optimalen seg_ids werden
         über ``merge_covering_runs`` coverage-erhaltend zu CutRuns
         verschmolzen und bei Basisgeschwindigkeit angeheftet; die
-        Regel-4.5-Anhebung passiert erst beim Planen (Enter, über
+        Geschwindigkeitsregel-Anhebung passiert erst beim Planen (Enter, über
         ``_chain_sel`` als DP-Split-Ketten -- reproduziert das gemeldete
         Lehrer-T exakt). Bei zu vielen Segmenten (``TeacherSkipped``)
         bleibt die Auswahl unverändert.
@@ -1017,13 +1017,13 @@ class SegmentCutSimulation:
         n_seg = len(self.contour.segments)
         rule_txt = "with" if self._use_rule45 else "without"
         self._status_msg = (f"{label} running ({n_seg} segments, "
-                            f"{rule_txt} rule 4.5) ...")
+                            f"{rule_txt} speed rule) ...")
         self._draw_stats()
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()
 
         try:
-            # rein exakt: jede vollstaendige Abdeckung wird gebaut --
+            # rein exakt: jede vollständige Abdeckung wird gebaut --
             # bei 14 Segmenten ~1 min, bei 16 einige Minuten
             result = exhaustive_plan(
                 self.grid, cutter=self.cutter, kerf=self.kerf_width,
@@ -1038,7 +1038,7 @@ class SegmentCutSimulation:
 
         phys = phys_from_cutter(self.cutter)
         # check_partial=True: exakt dieselbe Merge-Entscheidung wie der
-        # Lehrer (jede Gruppe wird gegen ihre Einzelsegmente geprueft),
+        # Lehrer (jede Gruppe wird gegen ihre Einzelsegmente geprüft),
         # damit die Runs dessen T und Coverage reproduzieren.
         runs = merge_covering_runs(
             self.contour, result.selected, self.material, phys,
@@ -1052,12 +1052,12 @@ class SegmentCutSimulation:
         self._pending = None
         self._run_speeds = {}
         # Segment-Auswahl merken: Enter kann damit die DP-Split-Ketten-
-        # ausfuehrung nutzen (reproduziert das gemeldete Lehrer-T exakt).
+        # ausführung nutzen (reproduziert das gemeldete Lehrer-T exakt).
         self._chain_sel = list(result.selected)
         self._state = _State.IDLE
 
         print()
-        print(f"{label} ({rule_txt} rule 4.5): "
+        print(f"{label} ({rule_txt} speed rule): "
               f"{len(result.selected)}/{result.n_segments} segments "
               f"-> {len(runs)} cut(s), T = {result.total_time:.1f} s, "
               f"coverage {result.coverage:.1%}, {detail} in "
@@ -1066,7 +1066,7 @@ class SegmentCutSimulation:
             self._status_msg = f"{label}: no feasible segments."
         else:
             self._status_msg = (
-                f"{label} ({rule_txt} rule 4.5): {len(runs)} "
+                f"{label} ({rule_txt} speed rule): {len(runs)} "
                 f"cut(s), T={result.total_time:.1f} s, coverage "
                 f"{result.coverage:.1%}, {result.plan_time:.1f} s "
                 f"-- press Enter to start.")
@@ -1089,7 +1089,7 @@ class SegmentCutSimulation:
         -> ein Planbau (DP-Split + Held-Karp) -> ein exakter Verify ->
         Fallback auf die Greedy-Auswahl, falls erreichbare Punkte fehlen.
         Das Modell bestimmt nur die Reihenfolge; die Coverage-Garantie
-        hängt nie am Modell. Regel-4.5-Schalter wie bei P und B.
+        hängt nie am Modell. Geschwindigkeitsregel-Schalter wie bei P und B.
 
         Wie umgesetzt
         -------------
@@ -1105,7 +1105,7 @@ class SegmentCutSimulation:
         n_seg = len(self.contour.segments)
         rule_txt = "with" if self._use_rule45 else "without"
         self._status_msg = (f"{label} running ({n_seg} segments, "
-                            f"{rule_txt} rule 4.5) ...")
+                            f"{rule_txt} speed rule) ...")
         self._draw_stats()
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()
@@ -1139,26 +1139,26 @@ class SegmentCutSimulation:
         self._state = _State.IDLE
 
         print()
-        print(f"{label} ({rule_txt} rule 4.5): " + result.summary())
+        print(f"{label} ({rule_txt} speed rule): " + result.summary())
         if not runs:
             self._status_msg = f"{label}: no feasible segments."
         else:
             fb = " [fallback to Greedy]" if result.used_fallback else ""
             self._status_msg = (
-                f"{label} ({rule_txt} rule 4.5): {len(runs)} cut(s), "
+                f"{label} ({rule_txt} speed rule): {len(runs)} cut(s), "
                 f"T={result.T:.1f} s, coverage {result.coverage:.1%}, "
                 f"{result.t_plan * 1e3:.0f} ms{fb} -- press Enter to start.")
         self._redraw()
 
     # ------------------------------------------------------------------
-    # Regel 4.5 (Geschwindigkeitszuweisung je Run)
+    # Geschwindigkeitsregel (Geschwindigkeitszuweisung je Run)
     # ------------------------------------------------------------------
 
     def _toggle_rule45(self) -> None:
-        """Regel 4.5 an-/ausschalten (Taste V / Button).
+        """Geschwindigkeitsregel an-/ausschalten (Taste V / Button).
 
         AN  : Beim Planen (Enter) bekommt jeder Run die schnellste
-              coverage-erhaltende Schnittgeschwindigkeit (Kap. 4.5);
+              coverage-erhaltende Schnittgeschwindigkeit;
               die Klinge L(v) wird entsprechend kürzer. Auch der
               Brute-Force-Löser optimiert dann mit dieser Regel.
         AUS : Alle Runs fahren mit der Basis-Schnittgeschwindigkeit
@@ -1178,19 +1178,19 @@ class SegmentCutSimulation:
         self._score = None
         self._style_rule_button()
         self._status_msg = (
-            "Rule 4.5 ON: v per run assigned during planning."
+            "Speed rule ON: v per run assigned during planning."
             if self._use_rule45 else
-            "Rule 4.5 OFF: all runs at base speed.")
+            "Speed rule OFF: all runs at base speed.")
         self._redraw()
 
     def _style_rule_button(self) -> None:
-        """Beschriftung + Farbe des Regel-4.5-Buttons an den Zustand
+        """Beschriftung + Farbe des Geschwindigkeitsregel-Buttons an den Zustand
         anpassen (grün = AN, grau = AUS)."""
         if self._rule_button is None:
             return
         on = self._use_rule45
         self._rule_button.label.set_text(
-            f"Rule 4.5: {'ON' if on else 'OFF'} (V)")
+            f"Speed rule: {'ON' if on else 'OFF'} (V)")
         self._rule_button.color = "#C8E6C9" if on else "#E0E0E0"
         self._rule_button.hovercolor = "#A5D6A7" if on else "#C8C8C8"
         self._rule_button.ax.set_facecolor(self._rule_button.color)
@@ -1198,7 +1198,7 @@ class SegmentCutSimulation:
     def _reset_run_speeds(self) -> None:
         """Heftet alle Runs wieder bei Basisgeschwindigkeit an.
 
-        Nötig, nachdem Regel 4.5 einzelnen Runs höhere Geschwindig-
+        Nötig, nachdem Geschwindigkeitsregel einzelnen Runs höhere Geschwindig-
         keiten (und damit kürzere Klingen / kleinere Swept Areas)
         zugewiesen hat -- sonst zeigt die Coverage-Anzeige die
         angehobenen Sweeps, obwohl die Regel abgeschaltet wurde.
@@ -1210,7 +1210,7 @@ class SegmentCutSimulation:
         self._run_speeds = {}
 
     def _assign_rule45_speeds(self) -> None:
-        """Regel 4.5 (Kap. 4.5): schnellste coverage-erhaltende
+        """Geschwindigkeitsregel: schnellste coverage-erhaltende
         Geschwindigkeit je Run zuweisen.
 
         Wie umgesetzt
@@ -1234,7 +1234,7 @@ class SegmentCutSimulation:
 
     def _apply_run_speeds(self, plan: CutPlan) -> None:
         """Rechnet die Schnittzeiten des Plans auf die zugewiesenen
-        Regel-4.5-Geschwindigkeiten um.
+        Regelgeschwindigkeiten um.
 
         Reihenfolge und Verbindungen bleiben gültig: der Sequencer
         minimiert nur die Übergänge (Eilgang + Zündungen), die von der
@@ -1411,17 +1411,17 @@ class SegmentCutSimulation:
             self._draw_stats()
             return
 
-        # Regel 4.5: Geschwindigkeiten zuweisen (AN) bzw. eine frühere
+        # Geschwindigkeitsregel: Geschwindigkeiten zuweisen (AN) bzw. eine frühere
         # Anhebung zurücknehmen (AUS) -- VOR dem Coverage-Report, damit
         # dieser die tatsächlichen Swept Areas bewertet. Stammt die
         # Auswahl von einem Planer (Taste P/S/B, ``_chain_sel``), wird die
         # DP-Split-Kettenausführung genutzt (Sub-Runs mit eigener
         # Geschwindigkeit, nahtlos) -- dieselbe Semantik, mit der der
         # Brute-Force-Lehrer sein T berechnet. Manuelle Auswahlen sind
-        # nicht segment-ausgerichtet -> Regel 4.5 je Run wie bisher.
+        # nicht segment-ausgerichtet -> Geschwindigkeitsregel je Run wie bisher.
         chains = None
         if self._use_rule45:
-            self._status_msg = "Rule 4.5: assigning speeds ..."
+            self._status_msg = "Speed rule: assigning speeds ..."
             self._draw_stats()
             self._fig.canvas.draw()
             self._fig.canvas.flush_events()
@@ -1453,9 +1453,9 @@ class SegmentCutSimulation:
             print(f"[INFEASIBLE] {exc}")
             self._redraw()
             return
-        # Regel 4.5 je Run: Schnittzeiten des Plans auf die zugewiesenen
+        # Geschwindigkeitsregel je Run: Schnittzeiten des Plans auf die zugewiesenen
         # Geschwindigkeiten umrechnen (Reihenfolge bleibt gültig). Der
-        # Ketten-Plan traegt seine Geschwindigkeiten bereits.
+        # Ketten-Plan trägt seine Geschwindigkeiten bereits.
         if self._run_speeds and not chains:
             self._apply_run_speeds(self._plan)
         self._score = compute_score(self._plan.total_time, report.fraction)
@@ -1466,7 +1466,7 @@ class SegmentCutSimulation:
             v_txt = ", ".join(
                 f"R{r.run_id}: {self._run_speeds.get(r.run_id, self.cutter.cutting_speed):.1f}"
                 for r in self._plan.runs_in_order)
-            print(f"  Rule 4.5 v [mm/s]: {v_txt}")
+            print(f"  Speed rule v [mm/s]: {v_txt}")
         print(f"  Score: {self._score:.0f}")
 
         # Schritt 4: Plan in Einzelbilder zerlegen, Coverage-Maske leeren
@@ -1556,7 +1556,7 @@ class SegmentCutSimulation:
                             pos=tcp[0], tip=tip0, mode="pierce",
                             run_id=run.run_id))
                     t += t_p
-                # Eigentlicher Schnitt: Regel-4.5-Geschwindigkeit des
+                # Eigentlicher Schnitt: Regelgeschwindigkeit des
                 # Runs (falls zugewiesen), sonst Basisgeschwindigkeit.
                 v_run = self._run_speeds.get(run.run_id,
                                              self.cutter.cutting_speed)
@@ -1983,8 +1983,8 @@ class SegmentCutSimulation:
 
         ax.text(0.5, -0.048,
                 "Click: start/end  |  Right-click/U: undo  |  A: all  |  "
-                "P: Greedy+  |  S: surrogate  |  B: brute force  |  "
-                "V: rule 4.5  |  "
+                "P: automatic planner  |  S: surrogate  |  B: brute force  |  "
+                "V: speed rule  |  "
                 "Enter: plan+start  |  R: reset  |  Esc: cancel",
                 transform=ax.transAxes, fontsize=7.5, color="#888",
                 ha="center", va="top")
@@ -2102,7 +2102,7 @@ class SegmentCutSimulation:
                                            self.cutter.cutting_speed)
                       for r in self._plan.runs_in_order]
                 if vs:
-                    kv("v per run (4.5)",
+                    kv("v per run (speed rule)",
                        f"{min(vs):.1f} - {max(vs):.1f} mm/s",
                        vc="#0B6E2F")
             if self._score is not None:
@@ -2118,7 +2118,7 @@ class SegmentCutSimulation:
         vmax = self.cutter.max_cutting_speed
         kv("Cut speed", f"{self.cutter.cutting_speed:.1f}"
            + (f" / max {vmax:.1f} mm/s" if vmax else " mm/s"))
-        kv("Rule 4.5 (v per run)", "ON" if self._use_rule45 else "OFF",
+        kv("Speed rule (v per run)", "ON" if self._use_rule45 else "OFF",
            vc="#16A34A" if self._use_rule45 else "#888888",
            bold=self._use_rule45)
         kv("Rapid speed", f"{self.cutter.rapid_speed:.1f} mm/s")

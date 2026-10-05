@@ -1,10 +1,15 @@
-# Laufzeit-Abhaengigkeiten des Pakets "plasma_cutter".
+# Laufzeit-Abhängigkeiten des Pakets "plasma_cutter".
 #
 # Installation (idealerweise in einem venv):
 #   python -m pip install -r requirements.txt
 #
-# Getestet mit Python 3.14 unter Windows (numpy 2.4, shapely 2.1,
-# matplotlib 3.10, scikit-learn 1.7).
+# Getestet mit Python 3.14 unter Windows (numpy 2.4, scipy 1.18,
+# shapely 2.1, matplotlib 3.10, scikit-learn 1.9, joblib 1.5).
+#
+# Das mitgelieferte Modell (segment_simulation/surrogate/artifacts/
+# surrogate_model.joblib) ist mit scikit-learn 1.9.0 gespeichert. Mit einer
+# anderen Version warnt scikit-learn beim Laden; im Zweifel 1.9 installieren
+# oder das Modell neu trainieren (siehe README).
 
 # Kern: Geometrie, Planung, Simulator
 numpy>=2.0

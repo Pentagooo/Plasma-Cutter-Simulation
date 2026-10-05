@@ -1,15 +1,15 @@
-"""Garantie-Test (A1): die Coverage haengt NIE am Modell.
+"""Garantie-Test (A1): die Coverage hängt NIE am Modell.
 
-Fuer ALLE 6 Testgeometrien und selbst mit absichtlich schlechten Modellen
-(Zufall, "waehle nichts", "waehle alles") liefert ``surrogate_plan`` einen
-GUELTIGEN Plan, dessen Coverage mindestens so gross ist wie die der
+Für ALLE 6 Testgeometrien und selbst mit absichtlich schlechten Modellen
+(Zufall, "wähle nichts", "wähle alles") liefert ``surrogate_plan`` einen
+GÜLTIGEN Plan, dessen Coverage mindestens so groß ist wie die der
 klassischen Baseline. Damit gilt:
 
     surrogate_missing  subset  baseline_missing
 
-d.h. jede verbleibende Fehlstelle ist auch fuer die Baseline unerreichbar
-(ehrliche Unerreichbarkeit, z.B. der vollstaendig umschlossene Bereich in
-``test_lochjson``). Fuer Vollkoerper heisst das Coverage == 1.0.
+d.h. jede verbleibende Fehlstelle ist auch für die Baseline unerreichbar
+(ehrliche Unerreichbarkeit, z.B. der vollständig umschlossene Bereich in
+``test_lochjson``). Für Vollkörper heißt das Coverage == 1.0.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _mask(grid, result):
 
 
 def _baseline_mask(grid):
-    """Robuste klassische Baseline-Abdeckung (ueber erzwungenen Fallback)."""
+    """Robuste klassische Baseline-Abdeckung (über erzwungenen Fallback)."""
     r0 = surrogate_plan(grid, ZeroModel())
     return _mask(grid, r0)
 
@@ -45,7 +45,7 @@ def test_coverage_never_depends_on_model():
                 f"{getattr(grid,'_source_path',grid)}: Surrogat verfehlt "
                 f"Baseline-Punkte (Modell {type(model).__name__})")
             # (2) Coverage == 1.0 ODER exakt die bekannte Unerreichbarkeit
-            #     (== Baseline-Unerreichbarkeit); Vollkoerper -> 1.0
+            #     (== Baseline-Unerreichbarkeit); Vollkörper -> 1.0
             if bmask.all():
                 assert mask.all(), "Vollkoerper nicht zu 100 % abgedeckt"
             # (3) Konsistenz des berichteten Coverage-Werts
@@ -59,7 +59,7 @@ def test_lochjson_reports_unreachable_not_crash():
     grid = geoms.get("test_lochjson")
     assert grid is not None
     r = surrogate_plan(grid, RandModel(3))
-    # Plan gueltig (alle Runs verbunden -> per Konstruktion) und Coverage
+    # Plan gültig (alle Runs verbunden -> per Konstruktion) und Coverage
     # entspricht der ehrlich erreichbaren Menge (< 1.0, aber > 0).
     assert 0.0 < r.coverage <= 1.0
     assert r.n_unreachable > 0

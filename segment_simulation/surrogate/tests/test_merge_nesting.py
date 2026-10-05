@@ -2,8 +2,8 @@
 die Vereinigung seiner Einzelsegmente ab.
 
 Sonst kann ein einzelner Abtastpunkt am Knoten den coverage-erhaltenden
-Merge kippen (Fallback auf Einzelruns = eine Zuendung je Segment). Geprueft
-fuer alle zusammenhaengenden Gruppen der Laenge 2 und 3 sowie den vollen
+Merge kippen (Fallback auf Einzelruns = eine Zündung je Segment). Geprüft
+für alle zusammenhängenden Gruppen der Länge 2 und 3 sowie den vollen
 Loop, auf dem kleinen Flachstahl und auf kontur.json.
 """
 from __future__ import annotations

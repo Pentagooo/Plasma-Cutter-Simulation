@@ -1,13 +1,13 @@
 """Lernkurve: Was bringt wie viel Trainingsdaten?
 
 Trainiert Modelle auf den ersten N Instanzen des Datensatzes
-(Katalogreihenfolge, Familien gleichmaessig gemischt) und misst jedes auf
+(Katalogreihenfolge, Familien gleichmäßig gemischt) und misst jedes auf
 einem festen Testsatz ungesehener Instanzen (seed 7: n Katalog + reale).
 Das Optimum des Testsatzes kommt aus einem Label-Ordner (``--opt-labels``,
 parallel erzeugt mit ``dataset --seed 7``) oder wird EINMAL sequentiell mit
 dem Brute-Force-Lehrer gerechnet und gecacht
-(``optimum_seed<s>_n<n>_P<hash>.csv``); Instanzen ueber ``k_max``
-Segmenten bekommen kein Optimum und zaehlen nicht in die Luecke.
+(``optimum_seed<s>_n<n>_P<hash>.csv``); Instanzen über ``k_max``
+Segmenten bekommen kein Optimum und zählen nicht in die Lücke.
 
 Ausgabe: ``<out>/learning_curve.csv`` / ``.md`` (+ je Modell eine
 Benchmark-CSV unter ``<out>/learning_curve_runs/``).
@@ -72,7 +72,7 @@ def optimum_table(n_eval: int, seed: int, out_dir: Path, p, k_max: int = 18,
                   opt_labels_dir: Path | None = None,
                   verbose: bool = True) -> dict:
     """T_opt je Testinstanz: aus ``opt_labels_dir`` oder gecacht als CSV
-    (sequentieller Lehrer; Instanzen ueber ``k_max`` bekommen kein Optimum)."""
+    (sequentieller Lehrer; Instanzen über ``k_max`` bekommen kein Optimum)."""
     if opt_labels_dir is not None:
         t_opt = {}
         for grid in generate_instances(n_eval, seed):
@@ -184,7 +184,7 @@ def main() -> None:
         results.append(s)
         print(f"{label:16s} N={n_inst:5d} rows={n_rows:6d}  T_sur {s['T_sur']:.2f} "
               f"({s['gap_mean']:.3f}x)  at-opt {s['at_opt']}/{s['n_eval']}  "
-              f"better/worse G+ {s['better_gplus']}/{s['worse_gplus']}  "
+              f"better/worse AP {s['better_gplus']}/{s['worse_gplus']}  "
               f"plan {s['t_plan_med_ms']:.0f} ms  label {t_label / 3600:.2f} CPU-h  "
               f"train {t_train:.0f} s", flush=True)
 
@@ -193,7 +193,7 @@ def main() -> None:
         n_list.append(n_avail)
     for n in n_list:
         k = _rows_of_first_instances(meta, n)
-        # kumulierte Lehrerzeit (CPU) fuer die ersten n Labels
+        # kumulierte Lehrerzeit (CPU) für die ersten n Labels
         t_label = float(sum(i.get("plan_time", 0.0) for i in meta["instances"][:n]))
         m = SurrogateModel()
         t0 = time.perf_counter()
@@ -218,7 +218,7 @@ def main() -> None:
              f"{seg_div:g}/{seg_min:g}, params {params_hash(p)}",
              "",
              "| Modell | Instanzen | Zeilen | Lehrerzeit [CPU-h] | Training [s] | "
-             "T Surrogat [s] | Luecke | am Optimum | besser/schlechter als G+ | "
+             "T Surrogat [s] | Luecke | am Optimum | besser/schlechter als AP | "
              "Planzeit Median [ms] |",
              "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|"]
     for s in results:
@@ -231,7 +231,7 @@ def main() -> None:
                      f"{s['T_sur']:.2f} | {s['gap_mean']:.3f}x | {s['at_opt']}/{s['n_eval']} | "
                      f"{s['better_gplus']}/{s['worse_gplus']} | {s['t_plan_med_ms']:.0f} |")
     lines.append("")
-    lines.append(f"Greedy+: {r0['T_gplus']:.2f} s ({r0['gap_gplus']:.3f}x), Planzeit Median "
+    lines.append(f"Automatic Planner: {r0['T_gplus']:.2f} s ({r0['gap_gplus']:.3f}x), Planzeit Median "
                  f"{r0['t_plan_gplus_med_ms']:.0f} ms; Optimum {r0['T_opt']:.2f} s")
     (out / "learning_curve.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))

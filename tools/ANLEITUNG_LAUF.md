@@ -1,7 +1,7 @@
 # Anleitung: Abschluss-Trainingslauf auf dem Ubuntu-Rechner
 
 Rechner: AMD Threadripper PRO 5965WX (24 Kerne / 48 Threads). Ziel: Phase 1
-in etwa 1,5 bis 2 Tagen (grosser Lauf v7, 24.09.2026). GPU wird nicht gebraucht.
+in etwa 1,5 bis 2 Tagen (großer Lauf v7, 24.09.2026). GPU wird nicht gebraucht.
 
 Alle Befehle im Programm **Terminal** (Strg+Alt+T) eingeben, jeweils eine
 Zeile, dann Enter. Zeilen, die mit `#` beginnen, sind Erklärungen.
@@ -13,9 +13,9 @@ Zeile, dann Enter. Zeilen, die mit `#` beginnen, sind Erklärungen.
 sudo apt update
 sudo apt install -y git python3.12 python3.12-venv
 
-# Arbeitsordner anlegen und Code holen (kein Login nötig, Repo ist öffentlich)
+# Arbeitsordner anlegen und Code holen (fragt nach dem Login für das IGMR-GitLab)
 mkdir -p ~/work && cd ~/work
-git clone -b InstanceTraining https://github.com/Pentagooo/Plasma-Cutter-Simulation.git plasma_cutter
+git clone https://igm-git.igm.rwth-aachen.de/sherec/auto_cutting_primitives.git plasma_cutter
 ```
 
 Wichtig: Der Ordner muss `plasma_cutter` heißen, und alle weiteren Befehle
@@ -84,7 +84,7 @@ plasma_cutter/tools/run_final_training.sh snapshot
 ```
 
 Sammelt die bis dahin fertigen Labels ein, trainiert ein Modell und
-benchmarkt es gegen Greedy+ und das Optimum auf dem Standard-Testsatz.
+benchmarkt es gegen Automatic Planner und das Optimum auf dem Standard-Testsatz.
 Ergebnis in `plasma_cutter/segment_simulation/surrogate/artifacts/runs/snapshot_<Uhrzeit>/benchmark.md`
 (Tabelle oben: T, Lücke zum Optimum, Planzeit). Der Testsatz ist ab etwa einer
 Stunde nach dem Start vorhanden.
@@ -122,12 +122,14 @@ Datensätze, Modelle, Benchmark- und Lernkurven-Dateien und die Logs.
 
 1. tar.gz nach `plasma_cutter\segment_simulation\surrogate\artifacts\` entpacken
    (es entstehen `runs\...` und `logs\...`).
-2. Aus `artifacts\runs\main\` die Dateien `surrogate_model.joblib` und
+2. Aus `artifacts\runs\main_v7\` die Dateien `surrogate_model.joblib` und
    `model_meta.json` nach `artifacts\` kopieren.
 3. Simulator starten, Taste S drücken: das Modell wird geladen und geprüft.
 
-Ergebnisse zum Lesen: `runs\main\benchmark.md` (Standard-Segmentierung),
-`runs\main\benchmark_fine.md` (feine Segmentierung), `runs\main\learning_curve.md`.
+Ergebnisse zum Lesen: `runs\main_v7\benchmark_s7.md` und `benchmark_s11.md`
+(Standard-Segmentierung), `benchmark_fine_s7.md` und `benchmark_fine_s11.md`
+(feine Segmentierung), `learning_curve.md`.
+Der Ordnername folgt `TAG` in `run_final_training.sh` (Voreinstellung `v7`).
 
 ## Stellschrauben (vor dem Start als Umgebungsvariable setzen)
 

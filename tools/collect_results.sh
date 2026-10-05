@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Ergebnisse der Box einsammeln: alle Laeufe (inkl. Labels) + Logs als tar.gz.
+# Ergebnisse der Box einsammeln: alle Läufe (inkl. Labels) + Logs als tar.gz.
 #   plasma_cutter/tools/collect_results.sh            (aus $WORK)
-# Zurueck auf Windows: entpacken nach plasma_cutter/segment_simulation/surrogate/artifacts/
-# und das gewaehlte Modell (runs/<name>/surrogate_model.joblib + model_meta.json)
-# nach artifacts/ kopieren -- dann laeuft Taste S im Simulator damit.
+# Zurück auf Windows: entpacken nach plasma_cutter/segment_simulation/surrogate/artifacts/
+# und das gewählte Modell (runs/<name>/surrogate_model.joblib + model_meta.json)
+# nach artifacts/ kopieren -- dann läuft Taste S im Simulator damit.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(dirname "$HERE")"

@@ -1,25 +1,7 @@
 from __future__ import annotations
 
-"""Feature-Berechnung für den Learned Surrogate Planner (BA-Kap. 5.2).
-
-Alle Features werden AUSSCHLIESSLICH aus der Kontur und einer
-Distanztransformation des Materialgitters abgeleitet. Genau es bleiben nur billige cKDTree-Distanzen.
-
-Zentrale Groessen je Primitiv-Segment s:
-
-  * Bogenlaenge, Punktzahl, relative Lage im Loop
-  * benoetigte Tiefe der (per naechster-Nachbar) zugewiesenen
-    Materialpunkte (max/mittel) -- steuert die Geschwindigkeitsregel
-  * Anteil exklusiv abdeckbarer Punkte (Punkte, die nur s bei v->0
-    erreicht) -- ein starkes Auswahlsignal
-  * lokale Wanddicke + Gegenwand-Flag
-  * Eckwinkel an beiden Enden, mittlere Richtungsaenderung (Rauheit)
-  * Loop-Kontext (Umfang, innen/aussen, Anzahl Loops)
-  * v_hat(s) nach der Geschwindigkeitsregel (Kap. 4.5) und die
-    Zeitschaetzung ell(s)/v_hat(s)
-
-Die Reihenfolge der Spalten ist deterministisch durch ``FEATURE_NAMES``
-festgelegt.
+"""Feature-Berechnung für den Learned Surrogate Planner 
+Alle Features werden mit cKDTree-Distanzen berechnet.
 """
 
 import math
@@ -42,10 +24,10 @@ except ImportError:  # Direktstart ohne Paket-Kontext
 
 
 # ---------------------------------------------------------------------- -----
-# Geschwindigkeits-Grenzen (Kap. 4.5)
+# Geschwindigkeits-Grenzen
 # ---------------------------------------------------------------------------
 V_MIN_DEFAULT = 19.4   # = v_cut, minimale Schnittgeschwindigkeit (Projektwert 17.09.2026)
-V_MAX_DEFAULT = 34.7   # Rueckfall, wenn cutter.max_cutting_speed fehlt
+V_MAX_DEFAULT = 34.7   # Base, wenn cutter.max_cutting_speed fehlt
 
 
 T_SWITCH_DEFAULT = 0.0
@@ -57,12 +39,9 @@ T_SWITCH_DEFAULT = 0.0
 
 @dataclass(frozen=True)
 class PhysParams:
-    """Aus einem ``Cutter`` abgeleitete physikalische Kenngroessen.
-
-    Wird einmal je Feature-/Planungslauf gebaut und dann wiederverwendet.
-    Alle Laengen in mm, Geschwindigkeiten in mm/s.
+    """Aus einem ``Cutter`` abgeleitete kenngrößen.
     """
-    blade0: float        # Klingenlaenge L(v=0) [mm]
+    blade0: float        # Klingenlänge L(v=0) [mm]
     slope: float         # |dL/dv| [mm/(mm/s)] (positiv)
     gap: float           # Mindestabstand TCP<->Material [mm]
     v_cut: float         # Basis-Schnittgeschwindigkeit [mm/s]
@@ -74,21 +53,17 @@ class PhysParams:
 
     @property
     def full_eff_depth(self) -> float:
-        """Effektive Schnitttiefe bei v->0 (maximale Reichweite) [mm]."""
+        """Effektive Schnitttiefe bei v->0"""
         return self.blade0 - self.gap
 
     @property
     def base_eff_depth(self) -> float:
         """Effektive Schnitttiefe bei der Basisgeschwindigkeit v_cut [mm].
-
-        Entspricht exakt der Reichweite, mit der die Baseline
-        (``auto_plan``) rechnet -- daher der Referenzwert fuer
-        Erreichbarkeit/Gegenwand.
         """
         return max(0.0, self.blade0 - self.slope * self.v_cut - self.gap)
 
     def blade_at(self, v: float) -> float:
-        """Klingenlaenge L(v) = clip(L0 - slope*v, 0, L0) [mm]."""
+        """Klingenlänge L(v) = clip(L0 - slope*v, 0, L0) [mm]."""
         return float(np.clip(self.blade0 - self.slope * float(v),
                              0.0, self.blade0))
 
@@ -97,14 +72,7 @@ class PhysParams:
         return max(0.0, self.blade_at(v) - self.gap)
 
     def speed_for_depth(self, depth_req: float) -> float:
-        """Geschwindigkeitsregel (Kap. 4.5): schnellste zulaessige v, bei
-        der die Klinge die benoetigte Tiefe ``depth_req`` noch erreicht.
-
-            v_hat = clip((L0 - gap - depth_req) / slope, v_min, v_max)
-
-        Kleine benoetigte Tiefe -> hohe Geschwindigkeit (kurze Klinge
-        genuegt); grosse Tiefe -> langsam (lange Klinge). Bei slope<=0
-        (geschwindigkeitsunabhaengige Klinge) wird v_max zurueckgegeben.
+        """Geschwindigkeitsregel schnellste zulässige v.
         """
         if self.slope <= 1e-9:
             return self.v_max
@@ -119,7 +87,7 @@ def phys_from_cutter(cutter: Cutter | None,
     """Leitet ``PhysParams`` aus einem Cutter ab (ohne simulation.py).
 
     ``slope`` wird numerisch aus dem L(v)-Modell bestimmt
-    (L(0) - L(1)); das ist robust gegenueber der internen Darstellung im
+    (L(0) - L(1)); das ist robust gegenüber der internen Darstellung im
     ``BladeLengthModel`` und braucht keinen Zugriff auf private Felder.
     ``t_switch`` (None) kommt aus ``cutter.speed_switch_time`` bzw. dem
     Default (0.0 s, offener Projektwert).
@@ -165,11 +133,11 @@ def _default_cutter() -> Cutter:
 def _contour_point_index(
     contour: SegmentedContour,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Alle Konturpunkte aller Segmente + zugehoerige Segment-ID.
+    """Alle Konturpunkte aller Segmente + zugehörige Segment-ID.
 
-    Ein Konturpunkt kann zu zwei Segmenten gehoeren (gemeinsamer Knoten);
+    Ein Konturpunkt kann zu zwei Segmenten gehören (gemeinsamer Knoten);
     er wird deterministisch dem Segment mit KLEINERER seg_id zugeordnet,
-    damit die naechste-Nachbar-Zuordnung reproduzierbar ist.
+    damit die nächste-Nachbar-Zuordnung reproduzierbar ist.
 
     Returns
     -------
@@ -228,7 +196,7 @@ def coverability_matrix(
     A_hat[p, s] = True  <=>  dist(p, Polylinie(s)) <= radius
 
      Genutzt vom Lehrer (dataset) zum
-    schnellen Verwerfen unvollstaendiger Subsets und vom Planner im
+    schnellen Verwerfen unvollständiger Subsets und vom Planner im
     Repair-Schritt. Billiger Check
     """
     n_seg = len(contour.segments)
@@ -247,10 +215,10 @@ def coverability_matrix(
 # ---------------------------------------------------------------------------
 
 FEATURE_NAMES: list[str] = [
-    "arc_length",          # Bogenlaenge des Segments [mm]
+    "arc_length",          # Bogenlänge des Segments [mm]
     "n_points",            # Anzahl Konturpunkte im Segment
-    "depth_req_max",       # max. benoetigte Tiefe zugewiesener Punkte [mm]
-    "depth_req_mean",      # mittlere benoetigte Tiefe [mm]
+    "depth_req_max",       # max. benötigte Tiefe zugewiesener Punkte [mm]
+    "depth_req_mean",      # mittlere benötigte Tiefe [mm]
     "n_assigned",          # Anzahl zugewiesener Materialpunkte
     "coverable_count",     # abdeckbare Punkte bei v->0
     "exclusive_fraction",  # Anteil exklusiv (nur s) abdeckbarer Punkte
@@ -258,55 +226,55 @@ FEATURE_NAMES: list[str] = [
     "has_opposing_wall",   # 1, wenn Gegenwand in Basis-Reichweite
     "corner_angle_start",  # Eckwinkel am Startknoten [rad]
     "corner_angle_end",    # Eckwinkel am Endknoten [rad]
-    "mean_abs_turn",       # mittlere |Richtungsaenderung| entlang s [rad]
+    "mean_abs_turn",       # mittlere |Richtungsänderung| entlang s [rad]
     "loop_perimeter",      # Umfang des Loops [mm]
-    "is_outer",            # 1 = Aussenkontur, 0 = Lochkontur
+    "is_outer",            # 1 = Außenkontur, 0 = Lochkontur
     "n_loops",             # Anzahl Loops der Geometrie
     "rel_position",        # relative Lage des Segmentstarts im Loop [0..1]
     "v_hat",               # zugewiesene Geschwindigkeit [mm/s]
-    "time_est",            # Zeitschaetzung ell/v_hat [s]
-    # --- Ueberlappungs-/Ersetzbarkeitsmerkmale (19.09.2026) -------------
+    "time_est",            # Zeitschätzung ell/v_hat [s]
+    # --- Überlappungs-/Ersetzbarkeitsmerkmale (19.09.2026) -------------
     # Die alte exclusive_fraction rechnet bei maximaler Reichweite (v->0);
     # dort erreicht fast jeden Punkt mehr als ein Segment, das Merkmal ist
     # praktisch immer 0. Die neuen Merkmale beschreiben, wie leicht die
-    # NACHBARN die Punkte eines Segments uebernehmen koennen.
+    # NACHBARN die Punkte eines Segments übernehmen können.
     "coverable_base_count",   # abdeckbare Punkte bei v_cut (Basis-Reichweite)
     "exclusive_base_frac",    # Anteil davon, die bei v_cut NUR s erreicht
     "overlap_max",            # max. Anteil von C_s, den EIN anderes Segment auch erreicht
     "n_overlap_base",         # Anzahl anderer Segmente mit gemeinsamen Punkten bei v_cut
-    "alt_depth_mean",         # mittlere Tiefe der zugewiesenen Punkte ab dem NAECHSTEN FREMDEN Segment [mm]
-    "alt_depth_max",          # max. Tiefe ab dem naechsten fremden Segment [mm]
+    "alt_depth_mean",         # mittlere Tiefe der zugewiesenen Punkte ab dem NÄCHSTEN FREMDEN Segment [mm]
+    "alt_depth_max",          # max. Tiefe ab dem nächsten fremden Segment [mm]
     "alt_replaceable_frac",   # Anteil zugewiesener Punkte, die ein fremdes Segment bei v_cut erreicht
     "n_segments",             # Segmentzahl der Instanz (Kontext)
     "coverable_rel",          # coverable_count / Anzahl Materialpunkte
-    "alt_extra_depth_mean",   # mittlere Mehrtiefe, wenn ein fremdes Segment uebernimmt [mm]
-    "alt_v_hat",              # Geschwindigkeit, die der Ersatz fuer alt_depth_max braeuchte [mm/s]
+    "alt_extra_depth_mean",   # mittlere Mehrtiefe, wenn ein fremdes Segment übernimmt [mm]
+    "alt_v_hat",              # Geschwindigkeit, die der Ersatz für alt_depth_max bräuchte [mm/s]
     # --- Lage in der Kante (drehungs- und startinvariant, ersetzt rel_position)
-    "edge_len",               # Laenge der Kante (Segmentkette zwischen zwei Ecken) [mm]
+    "edge_len",               # Länge der Kante (Segmentkette zwischen zwei Ecken) [mm]
     "edge_n_seg",             # Segmente in dieser Kante
     "edge_rel_pos_sym",       # Lage der Segmentmitte in der Kante, 0 = an der Ecke, 0.5 = Kantenmitte
-    "dist_corner",            # Bogenlaenge Segmentmitte -> naechste Ecke [mm]
+    "dist_corner",            # Bogenlänge Segmentmitte -> nächste Ecke [mm]
     # --- Kantenkontext: WELCHE Kante des Profils (invariant statt rel_position)
-    "edge_len_rel",           # Kantenlaenge / Loop-Umfang
-    "edge_nb_len_min",        # kuerzere Nachbarkante [mm]
-    "edge_nb_len_max",        # laengere Nachbarkante [mm]
-    "edge_depth_mean",        # mittlere benoetigte Tiefe aller Punkte der Kante [mm]
+    "edge_len_rel",           # Kantenlänge / Loop-Umfang
+    "edge_nb_len_min",        # kürzere Nachbarkante [mm]
+    "edge_nb_len_max",        # längere Nachbarkante [mm]
+    "edge_depth_mean",        # mittlere benötigte Tiefe aller Punkte der Kante [mm]
 ]
 
 N_FEATURES = len(FEATURE_NAMES)
 N_FEATURES_V1 = 18            # Spalten des Modells vor dem 19.09.2026
 
-# Merkmale, mit denen das Modell tatsaechlich trainiert wird (Teilmenge von
+# Merkmale, mit denen das Modell tatsächlich trainiert wird (Teilmenge von
 # FEATURE_NAMES). ``segment_features`` rechnet immer alle Spalten; Labels
-# und Datensaetze speichern alle Spalten; das Modell waehlt seine Spalten
-# ueber ``select_features`` anhand der gespeicherten ``feature_names``.
+# und Datensätze speichern alle Spalten; das Modell wählt seine Spalten
+# über ``select_features`` anhand der gespeicherten ``feature_names``.
 # Weggelassen (19.09.2026): Konstanten im Katalog (has_opposing_wall,
 # is_outer, n_loops), Duplikate (wall_thickness = 2*depth_req_max,
 # time_est/n_points ~ arc_length, v_hat = f(depth_req_max), alt_depth_mean
 # ~ alt_depth_max, coverable_base_count ~ coverable_count, n_assigned ~
 # coverable_count, alt_replaceable_frac ~ -exclusive_base_frac), tote
 # Merkmale (exclusive_fraction, mean_abs_turn, dist_corner, alt_v_hat,
-# exclusive_base_frac) und rel_position (Lage ab Loop-Start: haengt von
+# exclusive_base_frac) und rel_position (Lage ab Loop-Start: hängt von
 # der Konstruktionsreihenfolge des Katalogs ab, nicht von der Physik;
 # ersetzt durch die edge_*-Merkmale).
 DEFAULT_MODEL_FEATURES: list[str] = [
@@ -318,12 +286,12 @@ DEFAULT_MODEL_FEATURES: list[str] = [
     "edge_len",
     "edge_n_seg",
     "edge_rel_pos_sym",
-    # Ersetzbarkeit / Ueberlappung mit den Nachbarn
+    # Ersetzbarkeit / Überlappung mit den Nachbarn
     "alt_depth_max",
     "alt_extra_depth_mean",
     "overlap_max",
     "n_overlap_base",
-    # benoetigte Tiefe und Reichweite
+    # benötigte Tiefe und Reichweite
     "depth_req_max",
     "depth_req_mean",
     "coverable_count",
@@ -339,9 +307,9 @@ DEFAULT_MODEL_FEATURES: list[str] = [
 
 
 def select_features(X: np.ndarray, names: list[str]) -> np.ndarray:
-    """Waehlt aus einer VOLLEN Merkmalsmatrix (Spalten = FEATURE_NAMES) die
+    """Wählt aus einer VOLLEN Merkmalsmatrix (Spalten = FEATURE_NAMES) die
     Spalten ``names``. Hat X bereits genau len(names) Spalten, wird sie
-    unveraendert zurueckgegeben (Datensatz schon reduziert)."""
+    unverändert zurückgegeben (Datensatz schon reduziert)."""
     X = np.asarray(X, dtype=float)
     if X.ndim == 2 and X.shape[1] == len(names):
         return X
@@ -351,21 +319,21 @@ def select_features(X: np.ndarray, names: list[str]) -> np.ndarray:
     idx = [FEATURE_NAMES.index(n) for n in names]
     return X[:, idx]
 
-# Nachbarn je Materialpunkt fuer die Suche nach dem naechsten FREMDEN
+# Nachbarn je Materialpunkt für die Suche nach dem nächsten FREMDEN
 # Konturpunkt (Segmente bis ~30 Punkte -> 64 reicht praktisch immer).
 _ALT_K = 64
 
 
 def alt_segment_depth(coords: np.ndarray, contour: SegmentedContour,
                       cap: float) -> tuple[np.ndarray, np.ndarray]:
-    """Je Materialpunkt: naechstes Segment und die Distanz zum naechsten
+    """Je Materialpunkt: nächstes Segment und die Distanz zum nächsten
     Konturpunkt eines ANDEREN Segments (``cap``, wenn keins unter den
-    ``_ALT_K`` naechsten Konturpunkten liegt).
+    ``_ALT_K`` nächsten Konturpunkten liegt).
 
     Returns
     -------
-    seg_idx : (P,) seg_id des naechsten Segments
-    d_alt   : (P,) Distanz zum naechsten fremden Segment [mm]
+    seg_idx : (P,) seg_id des nächsten Segments
+    d_alt   : (P,) Distanz zum nächsten fremden Segment [mm]
     """
     pts, seg_of = _contour_point_index(contour)
     k = int(min(_ALT_K, len(pts)))
@@ -385,7 +353,7 @@ def alt_segment_depth(coords: np.ndarray, contour: SegmentedContour,
 
 
 def _corner_angle(loop, pos: int) -> float:
-    """Richtungsaenderung (Knick) der Kontur an Position pos [rad]."""
+    """Richtungsänderung (Knick) der Kontur an Position pos [rad]."""
     n = loop.n
     v1 = loop.points[pos] - loop.points[(pos - 1) % n]
     v2 = loop.points[(pos + 1) % n] - loop.points[pos]
@@ -403,8 +371,8 @@ def edge_features(contour: SegmentedContour,
 
     Eine Kante ist die Segmentkette zwischen zwei Eckknoten (Knick >=
     ``corner_deg``). Die Lage wird symmetrisch gemessen (Abstand zur
-    naeheren Ecke), damit sie weder vom Loop-Start noch von der
-    Umlaufrichtung abhaengt. Ein Loop ohne Eckknoten (Kreis) ist EINE
+    näheren Ecke), damit sie weder vom Loop-Start noch von der
+    Umlaufrichtung abhängt. Ein Loop ohne Eckknoten (Kreis) ist EINE
     geschlossene Kante: Lage 0.5, Eckabstand = halber Umfang.
     """
     n_seg = len(contour.segments)
@@ -428,7 +396,7 @@ def edge_features(contour: SegmentedContour,
         if cur:
             chains.append(cur)
         if len(chains) > 1 and segs[0].start_pos not in corners:
-            chains[0] = chains[-1] + chains[0]      # Kette ueber den Loop-Start
+            chains[0] = chains[-1] + chains[0]      # Kette über den Loop-Start
             chains.pop()
         closed = (len(chains) == 1 and segs[0].start_pos not in corners)
         lens = [float(sum(s.length for s in ch)) for ch in chains]
@@ -455,8 +423,8 @@ def edge_features(contour: SegmentedContour,
 
 
 def _mean_abs_turn(loop, positions: list[int]) -> float:
-    """Mittlere absolute Richtungsaenderung entlang einer Punktfolge [rad]
-    (Rauheitsmass)."""
+    """Mittlere absolute Richtungsänderung entlang einer Punktfolge [rad]
+    (Rauheitsmaß)."""
     if len(positions) < 3:
         return 0.0
     pts = loop.points[np.asarray(positions, dtype=int)]
@@ -475,13 +443,13 @@ def segment_features(
     cutter: Cutter | None = None,
     phys: PhysParams | None = None,
 ) -> np.ndarray:
-    """Feature-Matrix ``X[n_segments, N_FEATURES]`` fuer eine Geometrie.
+    """Feature-Matrix ``X[n_segments, N_FEATURES]`` für eine Geometrie.
 
     Parameters
     ----------
     grid    : PointGrid (liefert die Materialpunkte ``grid.coords``)
     contour : SegmentedContour mit den Primitiv-Segmenten
-    cutter  : Cutter fuer die Physik-Parameter (None -> Default)
+    cutter  : Cutter für die Physik-Parameter (None -> Default)
     phys    : optionale, vorab gebaute ``PhysParams`` (spart Aufbau)
 
     Returns
@@ -498,7 +466,7 @@ def segment_features(
     if n_seg == 0:
         return X
 
-    # Zuordnung Punkt -> Segment + benoetigte Tiefe (Distanztransformation)
+    # Zuordnung Punkt -> Segment + benötigte Tiefe (Distanztransformation)
     seg_idx, depth = assign_points(coords, contour)
 
     # Abdeckbarkeit bei maximaler Reichweite (v -> 0)
@@ -512,20 +480,20 @@ def segment_features(
     A_base = coverability_matrix(coords, contour, radius=phys.base_eff_depth)
     coverable_base = A_base.sum(axis=0).astype(np.int64)
     exclusive_base_pt = (A_base.sum(axis=1) == 1)
-    # Ueberlappung Segment x Segment (gemeinsam erreichbare Punkte)
+    # Überlappung Segment x Segment (gemeinsam erreichbare Punkte)
     Af = A.astype(np.int32)
     overlap_full = Af.T @ Af                                  # (S, S)
     np.fill_diagonal(overlap_full, 0)
     Ab = A_base.astype(np.int32)
     overlap_base = Ab.T @ Ab
     np.fill_diagonal(overlap_base, 0)
-    # Distanz zum naechsten FREMDEN Segment je Punkt (Ersetzbarkeit)
+    # Distanz zum nächsten FREMDEN Segment je Punkt (Ersetzbarkeit)
     _, d_alt = alt_segment_depth(coords, contour, cap=2.0 * phys.full_eff_depth)
 
     n_loops = len(contour.loops)
     n_pts = len(coords)
     E, edge_id = edge_features(contour)
-    # mittlere benoetigte Tiefe je Kante (ueber alle zugewiesenen Punkte)
+    # mittlere benötigte Tiefe je Kante (über alle zugewiesenen Punkte)
     edge_depth = np.zeros(n_seg, dtype=float)
     for e in np.unique(edge_id):
         m = np.isin(seg_idx, np.flatnonzero(edge_id == e))
@@ -581,7 +549,7 @@ def segment_features(
         X[s, 16] = v_hat
         X[s, 17] = time_est
 
-        # Ueberlappung / Ersetzbarkeit
+        # Überlappung / Ersetzbarkeit
         cov_b = int(coverable_base[s])
         excl_b = int(np.count_nonzero(A_base[:, s] & exclusive_base_pt))
         X[s, 18] = cov_b

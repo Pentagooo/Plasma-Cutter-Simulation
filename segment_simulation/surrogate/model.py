@@ -1,16 +1,16 @@
-"""Surrogat-Modell: Segment-Auswahl-Klassifikator (BA Kap. 5).
+"""Surrogat-Modell: Segment-Auswahl-Klassifikator.
 
 Ein scikit-learn ``HistGradientBoostingClassifier`` (Fallback:
 ``GradientBoostingClassifier``) sagt je Segment die Wahrscheinlichkeit
 p(s) vorher, in der zeitoptimalen Auswahl des Lehrers zu liegen. Der
 Planer nutzt nur die RANGFOLGE von p(s); tau (Recall >= 0.95 auf den
-Out-of-fold-Vorhersagen) wird der Vollstaendigkeit halber mitgespeichert.
+Out-of-fold-Vorhersagen) wird der Vollständigkeit halber mitgespeichert.
 
-Das Modell traegt KEINE Korrektheitsgarantie -- es entscheidet nur ueber
-Geschwindigkeit. Die Coverage-Garantie stellt der Planer ueber exakte
+Das Modell trägt KEINE Korrektheitsgarantie -- es entscheidet nur über
+Geschwindigkeit. Die Coverage-Garantie stellt der Planer über exakte
 Masken, Verify und Fallback sicher (siehe planner.py).
 
-Das gespeicherte Modell traegt den Parameterstempel aus ``params``
+Das gespeicherte Modell trägt den Parameterstempel aus ``params``
 (``label_version``, ``phys_hash``, ``params_hash``); ``load_model`` bricht
 hart ab, wenn Version oder Physik nicht zum laufenden Code passen, und
 warnt bei anderer Segmentierung/Katalog.
@@ -78,7 +78,7 @@ def _make_estimator(random_state: int = 0):
 
 
 def _sample_weight(y: np.ndarray) -> np.ndarray:
-    """class_weight-Aequivalent ueber sample_weight (balanced)."""
+    """class_weight-Äquivalent über sample_weight (balanced)."""
     y = np.asarray(y)
     w = np.ones(len(y), dtype=float)
     n_pos = int(y.sum())
@@ -92,8 +92,8 @@ def _sample_weight(y: np.ndarray) -> np.ndarray:
 
 def _calibrate_tau(y_true: np.ndarray, p: np.ndarray,
                    target_recall: float = TARGET_RECALL) -> float:
-    """Groesstes tau, bei dem der Recall der positiven Klasse >=
-    target_recall bleibt (maximiert damit die Praezision unter der
+    """Größtes tau, bei dem der Recall der positiven Klasse >=
+    target_recall bleibt (maximiert damit die Präzision unter der
     Recall-Nebenbedingung)."""
     y_true = np.asarray(y_true).astype(int)
     n_pos = int(y_true.sum())
@@ -106,7 +106,7 @@ def _calibrate_tau(y_true: np.ndarray, p: np.ndarray,
         tp = int(np.sum(pred & (y_true == 1)))
         recall = tp / n_pos
         if recall >= target_recall:
-            best_tau = float(tau)   # order aufsteigend -> letztes gueltiges
+            best_tau = float(tau)   # order aufsteigend -> letztes gültiges
     return best_tau
 
 
@@ -162,7 +162,7 @@ class SurrogateModel:
 
         est = _make_estimator(random_state)
 
-        # Out-of-fold-Wahrscheinlichkeiten (fuer die tau-Kalibrierung)
+        # Out-of-fold-Wahrscheinlichkeiten (für die tau-Kalibrierung)
         gkf = GroupKFold(n_splits=splits)
         sw = _sample_weight(y)
         oof = cross_val_predict(
@@ -183,7 +183,7 @@ class SurrogateModel:
         self.estimator.fit(X, y, sample_weight=sw)
 
         # Permutations-Importances (modell-agnostisch); in der Lernkurve
-        # ueberspringbar, damit die Haupt-CSV nicht ueberschrieben wird.
+        # überspringbar, damit die Haupt-CSV nicht überschrieben wird.
         importances: list[tuple[str, float]] = []
         if write_importances:
             try:
@@ -211,7 +211,7 @@ class SurrogateModel:
     # ------------------------------------------------------------------
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """p(s) je Segment (Wahrscheinlichkeit fuer 'im Optimum')."""
+        """p(s) je Segment (Wahrscheinlichkeit für 'im Optimum')."""
         X = np.asarray(X, dtype=float)
         if X.shape[0] == 0:
             return np.zeros(0)
@@ -271,7 +271,7 @@ def train_model(out_dir: Path | None = None, random_state: int = 0,
 
 
 def load_model(path: Path | None = None) -> SurrogateModel:
-    """Laedt das Modell; bricht hart ab, wenn LABEL_VERSION oder Physik
+    """Lädt das Modell; bricht hart ab, wenn LABEL_VERSION oder Physik
     nicht zum laufenden Code passen (stale) oder der Stempel fehlt; warnt,
     wenn nur Segmentierung/Katalog abweichen."""
     path = Path(path) if path else MODEL_PATH

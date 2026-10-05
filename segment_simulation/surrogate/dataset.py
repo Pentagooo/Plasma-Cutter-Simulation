@@ -1,16 +1,16 @@
-"""Label-Pipeline: Trainingsdaten mit dem Brute-Force-Lehrer (BA Kap. 5).
+"""Label-Pipeline: Trainingsdaten mit dem Brute-Force-Lehrer.
 
-Instanzen aus ``instances`` (Katalog, stabil ueber (seed, idx)), Labels vom
-Aufzaehlungs-Lehrer ``teacher.exhaustive_plan``: je Segment 1, wenn es in
+Instanzen aus ``instances`` (Katalog, stabil über (seed, idx)), Labels vom
+Aufzählungs-Lehrer ``teacher.exhaustive_plan``: je Segment 1, wenn es in
 der zeitoptimalen Auswahl liegt. Jede Instanz wird EINZELN als .npz in
-``<out>/labels/`` gecacht; der Dateiname traegt ``LABEL_VERSION`` und den
+``<out>/labels/`` gecacht; der Dateiname trägt ``LABEL_VERSION`` und den
 Parameter-Hash (``params.params_hash``), so dass Labels mit anderer Physik
 oder anderer Segmentierung nie verwechselt werden. Ein Neustart labelt nur
-die fehlenden. Das Labeln ist CPU-gebunden -> Prozess-Pool ueber Instanzen
+die fehlenden. Das Labeln ist CPU-gebunden -> Prozess-Pool über Instanzen
 mit Gleitfenster: bei Zeitbudget oder Stop-Datei werden keine neuen
 Instanzen mehr begonnen, laufende rechnen zu Ende (nichts geht verloren).
 
-Die realen Testgeometrien sind standardmaessig NICHT im Trainingsdatensatz
+Die realen Testgeometrien sind standardmäßig NICHT im Trainingsdatensatz
 (sie sind Testinstanzen des Benchmarks); ``--include-real`` nimmt sie auf.
 
 CLI (aus dem Elternordner von plasma_cutter):
@@ -69,7 +69,7 @@ ARTIFACTS = Path(__file__).resolve().parent / "artifacts"
 
 
 # ---------------------------------------------------------------------------
-# Cache-Schluessel
+# Cache-Schlüssel
 # ---------------------------------------------------------------------------
 
 def cache_key(spec: tuple, p: LabelParams) -> str:
@@ -83,7 +83,7 @@ def cache_key(spec: tuple, p: LabelParams) -> str:
 
 
 def spec_of_grid(grid, seed: int) -> tuple:
-    """Spec einer Instanz aus ``generate_instances`` (fuer ``cache_key``)."""
+    """Spec einer Instanz aus ``generate_instances`` (für ``cache_key``)."""
     if getattr(grid, "_family_name", "") == "real":
         return ("real", str(getattr(grid, "_instance_name", "?")))
     return ("cat", int(getattr(grid, "_catalog_idx")), int(seed))
@@ -130,8 +130,8 @@ def _load_grid(spec: tuple):
 # ---------------------------------------------------------------------------
 
 def lower_priority() -> None:
-    """Setzt den aktuellen Prozess auf niedrige CPU-Prioritaet (Windows:
-    BELOW_NORMAL, sonst nice +10), damit der Rechner waehrend eines
+    """Setzt den aktuellen Prozess auf niedrige CPU-Priorität (Windows:
+    BELOW_NORMAL, sonst nice +10), damit der Rechner während eines
     Label-Laufs benutzbar bleibt."""
     try:
         import ctypes
@@ -147,7 +147,7 @@ def lower_priority() -> None:
 
 
 def keep_awake(on: bool = True) -> bool:
-    """Haelt Windows waehrend des Laufs wach (Linux: ohne Wirkung, False)."""
+    """Hält Windows während des Laufs wach (Linux: ohne Wirkung, False)."""
     try:
         import ctypes
         k32 = ctypes.windll.kernel32
@@ -165,8 +165,8 @@ def keep_awake(on: bool = True) -> bool:
 # ---------------------------------------------------------------------------
 
 def _label_one(args: tuple):
-    """Labelt EINE Instanz und cacht sie als .npz (picklebar fuer den
-    Prozess-Pool). Rueckgabe (key, status) mit status in
+    """Labelt EINE Instanz und cacht sie als .npz (picklebar für den
+    Prozess-Pool). Rückgabe (key, status) mit status in
     {'cached', 'new', 'skip', 'too_big', 'error'}."""
     spec, k_max, cache_dir, low_prio, seg_divisor, seg_min_spacings = args
     if low_prio:
@@ -228,11 +228,11 @@ def _specs(n_instances: int, seed: int, include_real: bool) -> list[tuple]:
 def dry_run(n_instances: int, seed: int, k_max: int, mix: list,
             include_real: bool = False) -> dict:
     """Nur Konturen bauen: Histogramm der Segmentzahlen je Familie und
-    Anteil ueber ``k_max`` (zum Justieren von Segmentierung und
-    Massbereichen). Kein Lehrer, Sekunden statt Stunden. ``mix`` wie in
+    Anteil über ``k_max`` (zum Justieren von Segmentierung und
+    Maßbereichen). Kein Lehrer, Sekunden statt Stunden. ``mix`` wie in
     ``build_dataset`` (eine oder mehrere Segmentierungen, gewichtet)."""
     # k = Segmente der AUSSENkontur: Innenloop-Segmente (Loch) sind ohne
-    # Z-Hub nicht verbindbar und zaehlen beim Lehrer nicht (linkable_segments).
+    # Z-Hub nicht verbindbar und zählen beim Lehrer nicht (linkable_segments).
     hist: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     n_total_seg: dict[str, list] = collections.defaultdict(list)
     k_all: collections.Counter = collections.Counter()
@@ -291,13 +291,13 @@ def build_dataset(
     laufende rechnen zu Ende; ``stop_file``: dasselbe, sobald die Datei
     existiert. Danach wird der Datensatz aus allen gecachten Labels
     gebaut (auch aus ``extra_label_dirs``, sofern deren Labels dieselbe
-    LABEL_VERSION und Physik tragen). Ein spaeterer Aufruf mit demselben
+    LABEL_VERSION und Physik tragen). Ein späterer Aufruf mit demselben
     Kommando labelt nur die fehlenden nach.
 
     ``seg_mix``: Liste (divisor, min_spacings, weight); jede Instanz bekommt
     deterministisch (seed, idx) EINE dieser Segmentierungen -> ein Datensatz
-    mit Segmentzahlen ueber die ganze Spanne. Ohne ``seg_mix`` gilt
-    ``seg_divisor``/``seg_min_spacings`` fuer alle. Der Stempel des Datensatzes
+    mit Segmentzahlen über die ganze Spanne. Ohne ``seg_mix`` gilt
+    ``seg_divisor``/``seg_min_spacings`` für alle. Der Stempel des Datensatzes
     (und damit des Modells) ist der des ERSTEN Mischungseintrags."""
     mix = list(seg_mix) if seg_mix else [(float(seg_divisor), float(seg_min_spacings), 1.0)]
     p = label_params(mix[0][0], mix[0][1])          # Basis-Stempel
@@ -419,8 +419,8 @@ def build_dataset(
         if name in seen or d["X"].shape[0] == 0:
             return False
         if d["X"].shape[1] != N_FEATURES:
-            # Merkmalsliste hat sich geaendert: Labels bleiben gueltig, X
-            # wird aus der Geometrie neu gerechnet und zurueckgeschrieben
+            # Merkmalsliste hat sich geändert: Labels bleiben gültig, X
+            # wird aus der Geometrie neu gerechnet und zurückgeschrieben
             # (gleiches wie ``--refeaturize``, nur je Datei bei Bedarf).
             nonlocal n_refeat
             if n_refeat == 0 and verbose:
@@ -526,9 +526,9 @@ def spec_of_key(key: str) -> tuple:
 def refeaturize_labels(label_dir: Path, verbose: bool = True,
                        only: list | None = None) -> dict:
     """Rechnet die Merkmalsmatrix X aller Labels in ``label_dir`` mit dem
-    AKTUELLEN ``segment_features`` neu und schreibt sie in die .npz zurueck.
-    Labels (y, T, Stempel) bleiben unveraendert -- noetig, wenn sich die
-    Merkmalsliste aendert (kein Relabel). Rueckgabe: Statuszaehler."""
+    AKTUELLEN ``segment_features`` neu und schreibt sie in die .npz zurück.
+    Labels (y, T, Stempel) bleiben unverändert -- nötig, wenn sich die
+    Merkmalsliste ändert (kein Relabel). Rückgabe: Statuszähler."""
     label_dir = Path(label_dir)
     files = [Path(f) for f in only] if only else sorted(label_dir.glob("*.npz"))
     cutter = default_cutter()
@@ -551,7 +551,7 @@ def refeaturize_labels(label_dir: Path, verbose: bool = True,
             d["X"] = X
             np.savez(path, **d)
             status["ok"] += 1
-        except Exception as exc:          # einzelne Datei ueberspringen
+        except Exception as exc:          # einzelne Datei überspringen
             status["error"] += 1
             if verbose:
                 print(f"  {path.name!a}: {exc!a}")

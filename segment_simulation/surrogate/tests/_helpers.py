@@ -13,7 +13,7 @@ from shapely.geometry import box
 
 
 class RandModel:
-    """Absichtlich schlechtes Modell: rein zufaellige p(s)."""
+    """Absichtlich schlechtes Modell: rein zufällige p(s)."""
     def __init__(self, seed: int = 0, tau: float = 0.5):
         self.rng = np.random.default_rng(seed)
         self.tau = tau
@@ -23,7 +23,7 @@ class RandModel:
 
 
 class ZeroModel:
-    """Waehlt NICHTS (p(s)=0) -> erzwingt Repair/Fallback."""
+    """Wählt NICHTS (p(s)=0) -> erzwingt Repair/Fallback."""
     tau = 0.5
 
     def predict_proba(self, X):
@@ -31,7 +31,7 @@ class ZeroModel:
 
 
 class OneModel:
-    """Waehlt ALLES (p(s)=1)."""
+    """Wählt ALLES (p(s)=1)."""
     tau = 0.5
 
     def predict_proba(self, X):
@@ -39,12 +39,12 @@ class OneModel:
 
 
 def small_flat_bar() -> PointGrid:
-    """Kleiner Flachstahl (wenige Segmente) fuer den Lehrer-Test."""
+    """Kleiner Flachstahl (wenige Segmente) für den Lehrer-Test."""
     return grid_from_polygon(box(-40.0, -6.0, 40.0, 6.0))
 
 
 def real_geometries() -> list[PointGrid]:
-    """Die geprueften Testgeometrien."""
+    """Die geprüften Testgeometrien."""
     out = []
     for p in sorted(Path(TEST_GEOMETRY_DIR).glob("*.json")):
         out.append(PointGrid.from_json(p))

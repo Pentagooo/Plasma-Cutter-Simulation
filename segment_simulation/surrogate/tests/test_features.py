@@ -48,7 +48,7 @@ def test_features_shapes_and_ranges():
     # v_hat > 0 und <= v_max-Grenze; time_est >= 0
     assert (X[:, names.index("v_hat")] > 0).all()
     assert (X[:, names.index("time_est")] >= 0).all()
-    # Bogenlaenge > 0
+    # Bogenlänge > 0
     assert (X[:, names.index("arc_length")] > 0).all()
 
 

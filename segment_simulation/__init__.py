@@ -17,11 +17,10 @@ planning.py      Kinematik, LinkPlanner (kollisionsfreie Verbindungen),
                  Sequencer (Held-Karp), Score
 autoplan.py      Greedy-Auswahl (Greedy Set-Cover + Pruning + Merge)
 simulation.py    Interaktive Matplotlib-Simulation + Animation; vier
-                 Auswahlverfahren: manuell (Klick), Greedy+ (P),
+                 Auswahlverfahren: manuell (Klick), Automatic Planner (P),
                  Surrogat (S), Brute Force (B)
-surrogate/       Brute-Force-Lehrer, Greedy+, Surrogat-Planer, Modell,
+surrogate/       Brute-Force-Lehrer, Automatic Planner, Surrogat-Planer, Modell,
                  Label-Pipeline, Benchmark, Lernkurve
-thesis_figures/  Abbildungsskripte der Bachelorarbeit
 """
 
 from .segments import (

@@ -1,4 +1,4 @@
-# Shell-Skripte immer mit LF (CRLF laesst bash unter Linux abbrechen)
+# Shell-Skripte immer mit LF (CRLF lässt bash unter Linux abbrechen)
 *.sh text eol=lf
 *.py text
 *.md text

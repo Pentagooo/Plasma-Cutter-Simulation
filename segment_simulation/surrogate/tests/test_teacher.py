@@ -1,7 +1,7 @@
 """Lehrer-Test: Brute-Force-T <= Greedy-T auf einer kleinen Geometrie.
 
 Der Brute-Force-Lehrer optimiert {Auswahl x Reihenfolge x Richtung} + die
-4.5-Geschwindigkeitsregel; er darf daher NIE schlechter sein als der
+Geschwindigkeitsregel; er darf daher NIE schlechter sein als der
 klassische Greedy-Planer (der dieselbe Coverage bei fixem v_cut liefert).
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ def test_teacher_not_worse_than_greedy():
     tr = exhaustive_plan(grid, k_max=15, keep_covers=False)
     greedy = auto_plan(grid)
 
-    # Beide erreichen 100 % (kleiner Vollkoerper, alles erreichbar)
+    # Beide erreichen 100 % (kleiner Vollkörper, alles erreichbar)
     assert tr.coverage >= 0.999
     assert greedy.report.fraction >= 0.999
 
@@ -30,14 +30,14 @@ def test_teacher_not_worse_than_greedy():
     assert tr.total_time <= greedy.plan.total_time + 1e-6, (
         f"Lehrer T={tr.total_time:.3f} > Greedy T={greedy.plan.total_time:.3f}")
     assert tr.selected, "Lehrer hat kein Subset gewaehlt"
-    # Alle vollstaendigen Abdeckungen wurden bewertet; die Auswahl ist
+    # Alle vollständigen Abdeckungen wurden bewertet; die Auswahl ist
     # eine davon und keine ist schneller.
     assert tr.n_covers >= 1
     assert tr.n_subsets == (1 << tr.n_feasible) - 1
 
 
 def test_teacher_speed_rule_off_not_faster():
-    """Mit v_max = v_cut (Regel 4.5 AUS) kann das Optimum nur langsamer
+    """Mit v_max = v_cut (Geschwindigkeitsregel AUS) kann das Optimum nur langsamer
     oder gleich sein: der Entscheidungsraum ist eine Teilmenge."""
     grid = small_flat_bar()
     on = exhaustive_plan(grid, k_max=15, keep_covers=False, speed_rule=True)
@@ -46,7 +46,7 @@ def test_teacher_speed_rule_off_not_faster():
 
 
 def test_teacher_skips_large():
-    # Kuenstlich kleines k_max -> TeacherSkipped
+    # Künstlich kleines k_max -> TeacherSkipped
     grid = small_flat_bar()
     try:
         exhaustive_plan(grid, k_max=1)

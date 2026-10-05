@@ -1,15 +1,15 @@
-"""Dominanz-Test: T_Lehrer <= T_Greedy+ <= T_Greedy (konsistente Zielfunktion).
+"""Dominanz-Test: T_Lehrer <= T_AutomaticPlanner <= T_Greedy (konsistente Zielfunktion).
 
-Die Geschwindigkeitszuweisung (Kap. 4.5 + t_switch, DP-Split je Kette)
+Die Geschwindigkeitszuweisung (Geschwindigkeitsregel + t_switch, DP-Split je Kette)
 ist Teil des GEMEINSAMEN Entscheidungsraums aller Planer. Der
-Brute-Force-Lehrer bewertet jede vollstaendige Abdeckung mit genau
+Brute-Force-Lehrer bewertet jede vollständige Abdeckung mit genau
 dieser Pipeline und muss deshalb jeden klassischen Planer dominieren;
-Greedy+ (Greedy-Auswahl + DP-Split) darf nie langsamer sein als Greedy
+Automatic Planner (Greedy-Auswahl + DP-Split) darf nie langsamer sein als Greedy
 (Greedy-Auswahl bei Basisgeschwindigkeit).
 
-Toleranz: kleine Epsilons fuer Gleitkomma; Vergleich nur bei identischer
-Coverage (sonst vergleichen wir verschiedene Aufgaben). Instanzen ueber
-``K_MAX`` Segmenten werden uebersprungen (Lehrerzeit waechst ~2^k).
+Toleranz: kleine Epsilons für Gleitkomma; Vergleich nur bei identischer
+Coverage (sonst vergleichen wir verschiedene Aufgaben). Instanzen über
+``K_MAX`` Segmenten werden übersprungen (Lehrerzeit wächst ~2^k).
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from plasma_cutter.segment_simulation.surrogate.teacher import (
 from ._helpers import real_geometries, small_flat_bar
 
 EPS = 1e-6
-K_MAX = 13     # ~1-2 min fuer den ganzen Test; groessere Instanzen skippen
+K_MAX = 13     # ~1-2 min für den ganzen Test; größere Instanzen skippen
 
 
 def _cases():
@@ -60,7 +60,7 @@ def test_teacher_dominates_greedy_plus(name, grid):
 
     gp = greedy_plus_plan(grid)
     if gp["T"] is None:
-        pytest.skip(f"{name}: Greedy+ nicht verfuegbar")
+        pytest.skip(f"{name}: Automatic Planner nicht verfuegbar")
 
     # Nur bei gleicher Aufgabe vergleichen (identische erreichte Coverage).
     if not math.isclose(tr.coverage, gp["coverage"], abs_tol=1e-6):
@@ -68,7 +68,7 @@ def test_teacher_dominates_greedy_plus(name, grid):
                     f"({tr.coverage:.4f} vs {gp['coverage']:.4f})")
 
     assert tr.total_time <= gp["T"] + EPS, (
-        f"{name}: Lehrer ({tr.total_time:.3f}s) schlechter als Greedy+ "
+        f"{name}: Lehrer ({tr.total_time:.3f}s) schlechter als Automatic Planner "
         f"({gp['T']:.3f}s) -- Zielfunktions-Mismatch?")
 
 
@@ -81,7 +81,7 @@ def test_greedy_plus_not_worse_than_greedy(name, grid):
         pytest.skip(f"{name}: Greedy nicht planbar")
     gp = greedy_plus_plan(grid)
     if gp["T"] is None:
-        pytest.skip(f"{name}: Greedy+ nicht verfuegbar")
+        pytest.skip(f"{name}: Automatic Planner nicht verfuegbar")
     assert gp["T"] <= res.plan.total_time + EPS, (
-        f"{name}: Greedy+ ({gp['T']:.3f}s) langsamer als Greedy "
+        f"{name}: Automatic Planner ({gp['T']:.3f}s) langsamer als Greedy "
         f"({res.plan.total_time:.3f}s)")

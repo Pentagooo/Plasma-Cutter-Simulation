@@ -1,7 +1,7 @@
 """Modell-Guard: kein Laden eines Modells zu anderer Lehrer-Version oder
 anderer Physik.
 
-``load_model`` schlaegt HART fehl, wenn das Modell mit einer anderen (oder
+``load_model`` schlägt HART fehl, wenn das Modell mit einer anderen (oder
 unbekannten) ``LABEL_VERSION`` oder einer anderen Physik (``phys_hash``)
 trainiert wurde; eine andere Segmentierung (``params_hash``) gibt nur eine
 Warnung.

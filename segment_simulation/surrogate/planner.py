@@ -1,18 +1,18 @@
-"""Surrogat-Planer und Greedy+ (BA Kap. 5).
+"""Surrogat-Planer und Automatic Planner.
 
 ``surrogate_plan(grid, model)``:
 
     Features -> Modell p(s) -> Greedy Set Cover in p(s)-Reihenfolge auf
-    EXAKTEN Singleton-Masken (lazy, nur beruehrte Segmente) -> optional
+    EXAKTEN Singleton-Masken (lazy, nur berührte Segmente) -> optional
     Pruning redundanter Segmente -> EIN Planbau (DP-Split + Held-Karp)
     -> EIN exakter Verify -> klassischer Fallback (Greedy-Auswahl).
 
 Das Modell bestimmt nur die REIHENFOLGE. Masken, Planbau, Verify und
-Fallback sind exakt bzw. klassisch, die Coverage-Garantie haengt nie am
-Modell: selbst ein Zufallsmodell liefert am Ende einen gueltigen Plan.
+Fallback sind exakt bzw. klassisch, die Coverage-Garantie hängt nie am
+Modell: selbst ein Zufallsmodell liefert am Ende einen gültigen Plan.
 
 ``greedy_plus_plan(grid)``: die klassische Greedy-Set-Cover-Auswahl des
-``AutoPlanner`` (Kap. 4), aber mit DERSELBEN Geschwindigkeitsstufe wie
+``AutoPlanner``, aber mit DERSELBEN Geschwindigkeitsstufe wie
 Surrogat und Lehrer (DP-Split je Kette) -- die faire Vergleichsbasis.
 """
 from __future__ import annotations
@@ -71,15 +71,15 @@ class SurrogatePlanResult:
     ----------
     runs          : geordnete CutRuns des finalen Plans
     plan          : SpeedPlan (Zeitbilanz mit variablen Schnittgeschw.)
-    selected      : gewaehlte seg_ids (nach Pruning bzw. des Fallbacks)
+    selected      : gewählte seg_ids (nach Pruning bzw. des Fallbacks)
     coverage      : exakte Querschnitts-Coverage [0..1]
-    T             : Ausfuehrungszeit des Plans [s]
+    T             : Ausführungszeit des Plans [s]
     t_plan        : Wall-Clock der GESAMTEN Pipeline [s]
-    n_pruned      : Anzahl exakt weggekuerzter (redundanter) Segmente
-    used_fallback : True, wenn auf die Greedy-Auswahl zurueckgefallen wurde
-    n_unreachable : ehrlich unerreichbare Gitterpunkte (auch fuer Greedy)
+    n_pruned      : Anzahl exakt weggekürzter (redundanter) Segmente
+    used_fallback : True, wenn auf die Greedy-Auswahl zurückgefallen wurde
+    n_unreachable : ehrlich unerreichbare Gitterpunkte (auch für Greedy)
     n_candidates  : Anzahl Primitiv-Segmente
-    n_selected    : Anzahl gewaehlter Segmente
+    n_selected    : Anzahl gewählter Segmente
     timings       : Stufen-Timings [s]
     """
     runs: list = field(default_factory=list)
@@ -118,7 +118,7 @@ def _fallback_plan(grid: PointGrid, contour, material, cutter, phys, kerf):
     """Klassische Greedy-Auswahl (``AutoPlanner``: Greedy + Pruning +
     Merge), robust gegen nicht verbindbare Touren, sequenziert bei
     Basisgeschwindigkeit. Liefert (runs, mask, SpeedPlan, selected).
-    Dies ist zugleich die Referenz fuer die ehrliche Erreichbarkeit.
+    Dies ist zugleich die Referenz für die ehrliche Erreichbarkeit.
     """
     blade = cutter.blade_length(cutter.cutting_speed)
     kin = RunKinematics(material, clearance=phys.gap,
@@ -135,7 +135,7 @@ def _fallback_plan(grid: PointGrid, contour, material, cutter, phys, kerf):
         plan = build_plan_with_speeds(seq, runs, run_speed, cutter,
                                       drop_unlinkable=True)
     except Exception:
-        # Auch die klassische Auswahl kann an ungueltiger Geometrie
+        # Auch die klassische Auswahl kann an ungültiger Geometrie
         # scheitern -> leere Referenz (kein Crash).
         plan = SpeedPlan()
     kept = plan.ordered_runs  #Welche runs geschnitten werden können
@@ -144,7 +144,7 @@ def _fallback_plan(grid: PointGrid, contour, material, cutter, phys, kerf):
 
 
 # ---------------------------------------------------------------------------
-# Greedy+ : klassische Auswahl MIT Geschwindigkeitsregel (fairer Vergleich)
+# Automatic Planner : klassische Auswahl MIT Geschwindigkeitsregel (fairer Vergleich)
 # ---------------------------------------------------------------------------
 
 def greedy_plus_plan(grid: PointGrid, cutter=None, kerf: float = KERF,
@@ -154,11 +154,11 @@ def greedy_plus_plan(grid: PointGrid, cutter=None, kerf: float = KERF,
 
     Returns
     -------
-    dict mit T (Ausfuehrungszeit), coverage, n_runs, t_plan (Wall-Clock
+    dict mit T (Ausführungszeit), coverage, n_runs, t_plan (Wall-Clock
     der gesamten Planung [s]) und timings (Stufen-Timings [s]:
     candidates = Kandidaten/Swept-Areas des AutoPlanner, select =
     Greedy-Set-Cover + Pruning, sequence = Held-Karp + LinkPlanner,
-    speedup = DP-Split der Regel 4.5, verify = exakte Coverage). Bei
+    speedup = DP-Split der Geschwindigkeitsregel, verify = exakte Coverage). Bei
     Crash der Auswahl: T=None (nicht in den Vergleich aufnehmen).
     ``contour``: vorgegebene Segmentierung (Benchmark mit feiner
     Segmentierung); sonst ``SegmentedContour.from_grid``.
@@ -258,12 +258,12 @@ def surrogate_plan(
 ) -> SurrogatePlanResult:
     """Surrogat-Planer
 
-    ``prune=False`` laesst die Auswahl des Greedy Set Cover unveraendert;
+    ``prune=False`` lässt die Auswahl des Greedy Set Cover unverändert;
     ``proba_override`` ersetzt die Modellausgabe (Ablation: Zufall/
     Heuristik). ``contour`` ist die Segmentierung, auf die sich die
     seg_ids beziehen (Simulator: dessen Kontur). ``speed_rule=False``
-    klemmt v_max auf v_cut fuer Planbau und Fallback (Simulator mit
-    Regel-4.5-Schalter AUS); die Merkmale werden weiterhin mit den
+    klemmt v_max auf v_cut für Planbau und Fallback (Simulator mit
+    Geschwindigkeitsregel-Schalter AUS); die Merkmale werden weiterhin mit den
     Originalparametern berechnet, mit denen das Modell trainiert wurde.
     """
     t_start = time.perf_counter()
@@ -314,7 +314,7 @@ def surrogate_plan(
     timings["masks"] = time.perf_counter() - t0
 
     # C: Pruning (optional): Segment raus, wenn jeder seiner Punkte noch
-    # von einem anderen gewaehlten Segment gedeckt ist; unsicherste zuerst
+    # von einem anderen gewählten Segment gedeckt ist; unsicherste zuerst
     t0 = time.perf_counter()
     n_pruned = 0
     if prune and len(selected) > 1:

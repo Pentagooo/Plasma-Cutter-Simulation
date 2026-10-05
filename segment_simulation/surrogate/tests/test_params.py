@@ -1,4 +1,4 @@
-"""Parameterstempel: deterministisch, sensitiv fuer Physik und Segmentierung."""
+"""Parameterstempel: deterministisch, sensitiv für Physik und Segmentierung."""
 from __future__ import annotations
 
 from dataclasses import replace
