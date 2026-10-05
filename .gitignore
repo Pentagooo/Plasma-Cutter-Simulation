@@ -1,4 +1,3 @@
-# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -12,27 +11,20 @@ venv/
 env/
 .pytest_cache/
 
-# Logs
 *.log
 
-# IDE
 .vscode/
 .idea/
 *.swp
 
-# Claude Code (lokal/persönlich)
 .claude/
 
-# OS
 .DS_Store
 Thumbs.db
 
-# Artefakte des Surrogats: nur das produktive Modell gehört ins Repo.
-# Label-Caches, Läufe, Archive, Logs und Auswertungen bleiben lokal (groß).
 /segment_simulation/surrogate/artifacts/*
 !/segment_simulation/surrogate/artifacts/surrogate_model.joblib
 !/segment_simulation/surrogate/artifacts/model_meta.json
-# OneDrive-Konfliktkopien (z.B. artifacts-<RECHNERNAME>/)
 /segment_simulation/surrogate/artifacts-*/
 
 /logs/
