@@ -81,22 +81,18 @@ class Cutter:
         self.assumptions = assumptions or CuttingAssumptions()
 
     # ------------------------------------------------------------------
-    # B2: L(v) -- geschwindigkeitsabhängige Klingenlänge
+    # L(v) -- geschwindigkeitsabhängige Klingenlänge
     # ------------------------------------------------------------------
 
     def blade_length(self, v: float | None = None) -> float:
-        """Effektive Klingenlänge bei Schneidgeschwindigkeit v.
-
-        Wenn ``assumptions.use_velocity_dependent_blade`` aktiv ist,
-        wird das L(v)-Modell (siehe assumptions.BladeLengthModel)
-        ausgewertet. Sonst wird ``max_depth`` zurückgegeben.
-        """
+        """Klingenlänge L(v) bei Schneidgeschwindigkeit v
+        (Standard: ``cutting_speed``)."""
         if v is None:
             v = self.cutting_speed
-        return self.assumptions.effective_blade_length(v, self.max_depth)
+        return self.assumptions.effective_blade_length(v)
 
     # ------------------------------------------------------------------
-    # B3: Wiedereintrittspauschale
+    # Wiedereintrittspauschale
     # ------------------------------------------------------------------
 
     def pierce_time(self) -> float:

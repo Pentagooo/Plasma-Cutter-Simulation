@@ -1,26 +1,10 @@
-from __future__ import annotations
+"""Annahmen und Randbedingungen des Plasmaschneiders.
 
-"""Zentrales Modul für Randbedingungen und Modellannahmen des Plasmaschneiders.
-
-================================================================
-A) Annahmen
-================================================================
-
-A1  Konstante Leistung über alle Schnitte
-A2  Brenner steht orthogonal zum Profil
-A3  Schnittbreite (Kerf) konstant
-A4  Klingenlänge L(v) als Funktion der Schnittgeschwindigkeit
-A5  Kein Verschleiß von Düse/Elektrode
-
-================================================================
-B) Randbedingungen
-================================================================
-
-B1  Eintritt nur vom Außenrand  der Geometrie
-B2  Klingenlänge L(v) als Funktion der Geschwindigkeit
-B3  Wiedereintrittspauschale (Pierce-Time) pro Zündung
-B4  Einzeldurchgang -- Schnitt nur von einer Seite
+- Brenner steht orthogonal zum Profil
+- Schnittbreite (Kerf) konstant
+- Klingenlänge als Funktion der Schnittgeschwindigkeit: L(v)
 """
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 
@@ -28,64 +12,34 @@ import numpy as np
 
 
 # ---------------------------------------------------------------------------
-# A4 / B2  -- Klingenlänge L(v)
+# Klingenlänge L(v)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class BladeLengthModel:
-    """Modelliert die effektiv erreichbare Klingenlänge in Abhängigkeit
-    der Schneidgeschwindigkeit v.
-
-    Näherung 1 (Standard, konservativ):  L(v) = L_ref * v_ref / v
-    -- folgt aus der Annahme, dass Energie pro Längeneinheit
-       E_l = P / v
-    -- Begrenzt nach oben durch L_max (mechanische Reichweite des
-       Brenners) und nach unten durch L_min (sonst kein Schnitt).
-
-    Näherung 2 (linear, optional): L(v) = L_max - k*(v - v_ref)
-    -- empirische lineare Approximation um den Arbeitspunkt.
+    """Lineare Klingenlänge L(v) = clip(L0 - slope * v, 0, L0) [mm].
 
     Parameters
     ----------
-    L_ref   : Klingenlänge bei Referenzgeschwindigkeit [mm]
-    v_ref   : Referenzgeschwindigkeit [mm/s]
-    L_max   : maximale Klingenlänge (z.B. Brennerhub) [mm]
-    L_min   : minimale Schnitt-Tiefe (sonst kein Durchschnitt) [mm]
-    mode    : "inverse" (Standard, ~1/v) oder "linear"
-    slope   : nur für mode="linear": dL/dv (negativ) [mm * s / mm]
+    L0    : Klingenlänge bei v = 0 [mm]
+    slope : Verkürzung pro Geschwindigkeit [mm / (mm/s)]
     """
-    L_ref: float = 20.0
-    v_ref: float = 5.0
-    L_max: float = 40.0
-    L_min: float = 1.0
-    mode:  str   = "inverse"
-    slope: float = -1.5   # nur für "linear"
+    L0: float = 29.9
+    slope: float = 0.327
 
     def __call__(self, v: float) -> float:
+        # v > 0 erzwingen: so ist L0 im Parameterstempel (phys_hash) bestimmt.
         v = max(float(v), 1e-6)
-        if self.mode == "inverse":
-            L = self.L_ref * self.v_ref / v
-        elif self.mode == "linear":
-            L = self.L_ref + self.slope * (v - self.v_ref)
-        else:
-            raise ValueError(f"unknown BladeLengthModel.mode '{self.mode}'")
-        return float(np.clip(L, self.L_min, self.L_max))
+        return float(np.clip(self.L0 - self.slope * v, 0.0, self.L0))
 
 
 # ---------------------------------------------------------------------------
-# B3  -- Wiedereintrittspauschale (Pierce-Time)
+# Pierce-Zeit
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class PierceTimeModel:
     """Wiedereintrittspauschale je Zündung [s].
-
-    Der Brenner braucht nach jeder Zündung eine Pausen-Zeit, in der
-    das Material durchstoßen wird.  Mit der Blechstärke und der
-    Stromstörke wächst diese Zeit
-
-    Modell:  t_pierce(thickness) = t0 + k * thickness
-             (linear, über Hypertherm-Cut-Charts angepasst)
 
     Parameters
     ----------
@@ -121,19 +75,14 @@ class CuttingAssumptions:
     # Materialbezogen (für Pierce + Vergleich mit L)
     sheet_thickness: float = 12.0  # [mm]
 
-    # Globale Schalter
-    use_velocity_dependent_blade: bool = True
-    use_pierce_penalty:           bool = True
+    # Globaler Schalter
+    use_pierce_penalty: bool = True
 
     # ------------------------------------------------------------------
     # Komfort-Methoden
     # ------------------------------------------------------------------
 
-    def effective_blade_length(self, v: float, L_default: float) -> float:
-        """Gibt die effektive Klingenlänge zurück (mit oder ohne
-        Geschwindigkeitsabhängigkeit)."""
-        if not self.use_velocity_dependent_blade:
-            return L_default
+    def effective_blade_length(self, v: float) -> float:
         return self.blade(v)
 
     def pierce_time(self) -> float:
@@ -146,9 +95,7 @@ class CuttingAssumptions:
         return (
             f"CuttingAssumptions(\n"
             f"  thickness={self.sheet_thickness:.1f} mm\n"
-            f"  blade-model={'L(v)' if self.use_velocity_dependent_blade else 'const'} "
-            f"(L_ref={self.blade.L_ref}, v_ref={self.blade.v_ref}, "
-            f"L_max={self.blade.L_max})\n"
+            f"  blade L(v)=clip({self.blade.L0} - {self.blade.slope}*v, 0, {self.blade.L0})\n"
             f"  pierce={'ON' if self.use_pierce_penalty else 'OFF'} "
             f"(t0={self.pierce.t0}s, k={self.pierce.k}s/mm)\n"
             f")"

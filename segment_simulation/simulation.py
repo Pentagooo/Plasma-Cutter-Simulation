@@ -174,22 +174,14 @@ def make_default_cutter(
 
     Wie umgesetzt
     -------------
-    Es wird zuerst ein ``BladeLengthModel`` im Modus "linear" erzeugt:
-    L(v) = L_ref + slope * v. Da die Klinge mit steigender
-    Geschwindigkeit KÜRZER wird, geht ``blade_slope`` als NEGATIVE
-    Steigung (``slope=-blade_slope``) ein; ``L_max``/``L_min`` begrenzen
-    das Ergebnis. Dieses Modell landet in ``CuttingAssumptions`` (Flag
-    ``use_velocity_dependent_blade=True``) und schließlich im
-    zurückgegebenen ``Cutter`` zusammen mit den Geschwindigkeiten und
-    dem Mindestabstand.
+    Das lineare ``BladeLengthModel`` L(v) = clip(L0 - slope * v, 0, L0)
+    landet zusammen mit dem Pierce-Modell in ``CuttingAssumptions`` und
+    schließlich im zurückgegebenen ``Cutter`` zusammen mit den
+    Geschwindigkeiten und dem Mindestabstand.
     """
-    blade = BladeLengthModel(
-        mode="linear",
-        L_ref=blade_length, v_ref=0.0, slope=-blade_slope,
-        L_max=blade_length, L_min=0.0,
-    )
+    blade = BladeLengthModel(L0=blade_length, slope=blade_slope)
     assumptions = CuttingAssumptions(
-        blade=blade, use_velocity_dependent_blade=True,
+        blade=blade,
         pierce=PierceTimeModel(t0=pierce_t0, k=pierce_k),
         sheet_thickness=sheet_thickness)
     return Cutter(
