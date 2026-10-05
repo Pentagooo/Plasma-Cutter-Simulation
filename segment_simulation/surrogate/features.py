@@ -89,7 +89,7 @@ def phys_from_cutter(cutter: Cutter | None,
     ``slope`` wird numerisch aus dem L(v)-Modell bestimmt
     (L(0) - L(1)); das ist robust gegenüber der internen Darstellung im
     ``BladeLengthModel`` und braucht keinen Zugriff auf private Felder.
-    ``t_switch`` (None) kommt aus ``cutter.speed_switch_time`` bzw. dem
+    ``t_switch`` (None) kommt aus ``cutter.t_switch`` bzw. dem
     Default (0.0 s, offener Projektwert).
     """
     if cutter is None:
@@ -101,7 +101,7 @@ def phys_from_cutter(cutter: Cutter | None,
     if v_max is None:
         v_max = float(cutter.max_cutting_speed or V_MAX_DEFAULT)
     if t_switch is None:
-        t_switch = float(getattr(cutter, "speed_switch_time",
+        t_switch = float(getattr(cutter, "t_switch",
                                  T_SWITCH_DEFAULT))
     return PhysParams(
         blade0=blade0,

@@ -138,7 +138,7 @@ RAPID_SPEED = 100.0               # Eilgang zwischen Schnitten
 
 # Zeitaufschlag je Geschwindigkeitswechsel IM laufenden Schnitt [s]
 # (Roboterrampe + Lichtbogen-Transient; t_switch).
-SPEED_SWITCH_TIME = 0.0
+T_SWITCH = 0.0
 
 # Zündung (Pierce): t_pierce = PIERCE_T0 + PIERCE_K * SHEET_THICKNESS
 PIERCE_T0 = 1.0               # [s]
@@ -158,7 +158,7 @@ def make_default_cutter(
     blade_slope: float = BLADE_SLOPE,
     minimum_gap: float = MINIMUM_GAP,
     rapid_speed: float = RAPID_SPEED,
-    speed_switch_time: float = SPEED_SWITCH_TIME,
+    t_switch: float = T_SWITCH,
     pierce_t0: float = PIERCE_T0,
     pierce_k: float = PIERCE_K,
     sheet_thickness: float = SHEET_THICKNESS,
@@ -189,7 +189,7 @@ def make_default_cutter(
         max_cutting_speed=max_cutting_speed,
         rapid_speed=rapid_speed,
         minimum_gap=minimum_gap,
-        speed_switch_time=speed_switch_time,
+        t_switch=t_switch,
         assumptions=assumptions,
     )
 
@@ -1255,7 +1255,7 @@ class SegmentCutSimulation:
         (``build_speed_chains``): jede zusammenhängende Kette zerfällt
         per DP in Sub-Runs mit eigener Geschwindigkeit; Übergänge
         zwischen Sub-Runs sind nahtlos (kein Pierce, kein Eilgang, nur
-        ``speed_switch_time`` bei Geschwindigkeitswechsel). Genau damit
+        ``t_switch`` bei Geschwindigkeitswechsel). Genau damit
         rechnet der Brute-Force-Lehrer sein T aus -- Enter reproduziert
         es dadurch exakt.
 
@@ -1288,7 +1288,7 @@ class SegmentCutSimulation:
         Makro-Knoten je Kette (Endpunkte, Richtung frei); danach werden
         die Sub-Runs in Kettenreihenfolge vom gewählten Ende aus
         ausgerollt. Nahtlose Sub-Run-Übergänge kosten weder Pierce noch
-        Eilgang, nur ``speed_switch_time`` bei Geschwindigkeitswechsel;
+        Eilgang, nur ``t_switch`` bei Geschwindigkeitswechsel;
         zwischen Ketten wird wie bisher verfahren + neu gezündet. Die
         Schritte tragen die Link-Geometrie -> ``_build_frames`` kann den
         Plan unverändert animieren.
@@ -1296,7 +1296,7 @@ class SegmentCutSimulation:
         macros = [ch.macro for ch in chains]
         ordered, is_opt = self.sequencer.order_runs(macros)
         by_id = {ch.macro.run_id: ch for ch in chains}
-        t_switch = float(getattr(self.cutter, "speed_switch_time", 0.0))
+        t_switch = float(getattr(self.cutter, "t_switch", 0.0))
 
         plan = CutPlan(is_optimal=is_opt)
         prev_end: np.ndarray | None = None
@@ -2224,7 +2224,7 @@ if __name__ == "__main__":
                         help="Maximum cutting speed in mm/s")
     parser.add_argument("--v-rapid", type=float, default=RAPID_SPEED,
                         help="Rapid traverse speed in mm/s")
-    parser.add_argument("--t-switch", type=float, default=SPEED_SWITCH_TIME,
+    parser.add_argument("--t-switch", type=float, default=T_SWITCH,
                         help="Time penalty per speed change within a cut [s]")
     parser.add_argument("--blade-length", type=float, default=BLADE_LENGTH,
                         help="Base arc length L(v=0) in mm")
@@ -2241,7 +2241,7 @@ if __name__ == "__main__":
         blade_slope=args.blade_slope,
         minimum_gap=args.clearance,
         rapid_speed=args.v_rapid,
-        speed_switch_time=args.t_switch,
+        t_switch=args.t_switch,
     )
     L = cutter.blade_length(cutter.cutting_speed)
     print(cutter)

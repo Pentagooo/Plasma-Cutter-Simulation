@@ -164,7 +164,7 @@ plasma_cutter/
 Alle label-relevanten Werte stehen an einer Stelle: die Physik des
 Schneiders im Konstantenblock von `segment_simulation/simulation.py`
 (`v_cut`, `v_max`, `L0`, `blade_slope`, `minimum_gap`, `rapid_speed`,
-`speed_switch_time`, Pierce), Kerf und Segmentierungsregel in
+`t_switch`, Pierce), Kerf und Segmentierungsregel in
 `surrogate/params.py`, Abtastung in `planning.TCP_SAMPLE_STEP`, Punktdichte
 und Katalog in `surrogate/instances.py`. `params.label_params()` sammelt sie;
 zwei Hashes davon stehen in jedem Label-Dateinamen, in `dataset_meta.json`

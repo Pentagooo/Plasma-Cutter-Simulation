@@ -21,7 +21,7 @@ def test_hash_deterministic():
 
 def test_physics_change_changes_phys_hash():
     base = label_params()
-    other = label_params(cutter=make_default_cutter(speed_switch_time=0.5))
+    other = label_params(cutter=make_default_cutter(t_switch=0.5))
     assert other.t_switch == 0.5
     assert phys_hash(other) != phys_hash(base)
     assert params_hash(other) != params_hash(base)
