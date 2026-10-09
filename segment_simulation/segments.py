@@ -1,23 +1,14 @@
-from __future__ import annotations
-
-"""Konturen, Segmentierung und Coverage für die Segment-Simulation.
+"""Konturen, Segmentierung und Coverage.
 
 Begriffe
 --------
-ContourLoop : Eine geschlossene Kontur (Außenrand oder Lochrand) als
-              geordnete Punktfolge. Positionen sind Indizes 0..N-1
-              innerhalb des Loops (zyklisch, modulo N).
-Segment     : Ein automatisch erzeugtes Primitiv-Segment = Sammlung
-              aufeinanderfolgender Konturpunkte zwischen zwei Knoten.
-              Die Knoten (Segmentgrenzen) sind die "möglichen Start-
-              und Endpunkte"
-CutRun      : Ein vom Benutzer gewählter Schnitt von einem Knoten zu
-              einem anderen entlang der Kontur (kann mehrere
-              Primitiv-Segmente umfassen). Richtung +1/-1.
-Coverage    : Anteil der Konturpunkte, die von den gewählten CutRuns
-              abgedeckt werden. 100 % = Objekt vollständig
-              durchgeschnitten.
+ContourLoop : geschlossene Kontur (Außen- oder Lochrand), Positionen 0..N-1
+Segment     : Konturbogen zwischen zwei Knoten (mögliche Start-/Endpunkte)
+CutRun      : gewählter Schnitt von Knoten zu Knoten, Richtung +1/-1
+Coverage    : abgedeckter Anteil der Kontur- bzw. Gitterpunkte
 """
+
+from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
@@ -54,7 +45,7 @@ class ContourLoop:
 
     def __post_init__(self) -> None:
         self.points = np.asarray(self.points, dtype=float)
-        n = len(self.points) #Eckpunkte
+        n = len(self.points)
         # Kantenlänge von Punkt i zu Punkt i+1 (zyklisch)
         nxt = np.roll(self.points, -1, axis=0)
         self._edge_len = np.linalg.norm(nxt - self.points, axis=1)
@@ -127,11 +118,8 @@ class ContourLoop:
         material: Polygon | MultiPolygon | None,
         probe: float = 1.0,
     ) -> np.ndarray:
-        """Einheits-Normale an Position pos, die vom Material WEG zeigt.
-
-        Für Außenkonturen zeigt sie nach außen, für Lochkonturen in
-        das Loch hinein (= freier Raum). Die Richtung wird per
-        Punkt-im-Polygon-Test bestimmt.
+        """Einheits-Normale an pos, vom Material weg (außen bzw. ins Loch);
+        Richtung per Punkt-im-Polygon-Test.
         """
         t = self.tangent_at(pos)
         normal = np.array([-t[1], t[0]])
@@ -171,12 +159,7 @@ class ContourLoop:
 
 @dataclass
 class Segment:
-    """Automatisch erzeugtes Primitiv-Segment einer Kontur.
-
-    Eine Sammlung aufeinanderfolgender Konturpunkte zwischen zwei
-    Knoten. Die Knoten sind die möglichen Start-/Endpunkte für
-    Benutzer-Auswahlen.
-    """
+    """Konturbogen zwischen zwei Knoten (automatisch erzeugt)."""
     seg_id: int
     loop_id: int
     start_pos: int           # Knoten (Position im Loop)
@@ -196,15 +179,10 @@ class Segment:
 
 @dataclass
 class CutRun:
-    """Ein gewählter Schnitt entlang der Kontur: Startknoten ->
-    Endknoten in einer Richtung.
+    """Ein gewählter Schnitt entlang der Kontur (Startknoten -> Endknoten).
 
-    Die Kontur-Geometrie (positions/polyline) beschreibt, WO an der
-    Oberfläche geschnitten wird. Die -Kinematik
-    (tcp_polyline/tip_polyline/swept_polygon) wird nachträglich von
-    ``planning.RunKinematics.attach()`` berechnet: Der TCP fährt auf
-    dem Offset-Pfad (Mindestabstand zum Material), die Klinge ragt mit
-    L(v) Richtung Objekt und überstreicht die Querschnittsfläche.
+    Die Kinematik (tcp_polyline, tip_polyline, swept_polygon) setzt
+    ``planning.RunKinematics.attach()`` nachträglich.
 
     Attributes
     ----------
@@ -215,9 +193,8 @@ class CutRun:
     tip_polyline  : (K, 2) Klingenspitzen-Wegpunkte
     swept_polygon : Shapely-Polygon der überstrichenen Fläche
     tcp_length    : Länge des TCP-Pfads [mm] (maßgeblich für die Zeit)
-    node_positions: Segmentknoten unter ``positions`` (inkl. Endpunkte);
-                    Stützstellen des TCP-Pfads (verschachtelte Abtastung,
-                    siehe ``RunKinematics.attach``). None = alle Punkte.
+    node_positions: Segmentknoten unter ``positions``, Stützstellen des
+                    TCP-Pfads (None = alle Punkte)
     """
     run_id: int
     loop_id: int
@@ -296,24 +273,20 @@ class CutRun:
 class SegmentedContour:
     """Alle Konturen einer Geometrie inkl. automatischer Segmentierung.
 
-    Segmentierungs-Strategie
-
-      1. Ecken der Kontur (Richtungswechsel >= corner_angle_deg) werden
-         immer Knoten -- Segmente enden an geometrischen Ecken.
-      2. Bogen zwischen zwei Ecken, die länger als die Ziellänge
-         sind, werden in gleich große Teile unterteilt.
+    Segmentierung
+      1. Ecken (Richtungswechsel >= corner_angle_deg) sind immer Knoten.
+      2. Bögen zwischen Ecken, die länger als die Ziellänge sind, werden
+         gleichmäßig geteilt.
       3. Ziellänge = clamp(Umfang / segment_divisor,
                            seg_min_spacings * Punktabstand, Umfang / 4)
-         (Defaults 12 und 4; überschreibbar via target_segment_length).
-         Ein größerer Divisor bzw. kleinere Untergrenze ergibt mehr
-         (kürzere) Segmente -- die "feine" Segmentierung der Label-Pipeline.
+         (überschreibbar via target_segment_length).
 
     Parameters
     ----------
     loops                  : Liste der ContourLoops
     target_segment_length  : Ziel-Segmentlänge [mm] (None = automatisch)
     corner_angle_deg       : Schwellwinkel für Eckenerkennung [Grad]
-    point_spacing          : Konturpunkt-Abstand [mm] (für Min-Größe)
+    point_spacing          : Konturpunkt-Abstand [mm]
     segment_divisor        : Ziellänge = Umfang / segment_divisor
     seg_min_spacings       : Untergrenze = seg_min_spacings * point_spacing
     """
@@ -353,11 +326,7 @@ class SegmentedContour:
         segment_divisor: float = 12.0,
         seg_min_spacings: float = 4.0,
     ) -> SegmentedContour:
-        """Baut die SegmentedContour aus einem PointGrid.
-
-        Außenpunkte und Lochpunkte des Grids sind in Kontur-Reihenfolge
-        gespeichert (siehe PointGrid.outer_points_ordered).
-        """
+        """Baut die SegmentedContour aus einem PointGrid."""
         loops: list[ContourLoop] = []
 
         outer = grid.outer_points_ordered
@@ -457,8 +426,7 @@ class SegmentedContour:
 
         nodes = sorted(node_set)
 
-        # Zu dicht liegende Knoten ausdünnen (Mindestabstand 2 Punkte),
-        # Ecken haben Vorrang vor eingefügten Teilungs-Knoten.
+        # Knoten mit Abstand < 2 Punkte ausdünnen, Ecken haben Vorrang
         corner_set = set(corners)
         filtered: list[int] = []
         for nd in nodes:
@@ -555,11 +523,9 @@ class SegmentedContour:
     ) -> CutRun:
         """Erzeugt einen CutRun von start_pos nach end_pos.
 
-        Zwischen zwei Knoten gibt es zwei mögliche Bögen (im / gegen
-        den Uhrzeigersinn). Gewählt wird der Bogen mit den meisten
-        noch NICHT abgedeckten Punkten; bei Gleichstand der kürzere.
-
-        start_pos == end_pos wählt den kompletten Loop.
+        Von zwei möglichen Bögen wird der mit dem größten Anteil noch nicht
+        abgedeckter Punkte gewählt, bei Gleichstand der kürzere.
+        start_pos == end_pos ergibt den ganzen Loop.
         """
         loop = self.loop_by_id(loop_id)
         covered_set: set[int] = covered if covered is not None else set()
@@ -588,10 +554,7 @@ class SegmentedContour:
             ))
 
         def score(run: CutRun) -> tuple[float, float]:
-            # Höchster ANTEIL neuer Punkte zuerst (so wird bei zwei
-            # unberührten Bögen der kürzere gewählt, bei teilweise
-            # abgedeckter Kontur aber der noch fehlende Bogen),
-            # dann kürzere Länge.
+            # größter Anteil neuer Punkte, dann kürzere Länge
             uncovered = len(set(run.positions) - covered_set)
             fraction = uncovered / max(1, len(run.positions))
             return -fraction, run.length
@@ -606,12 +569,12 @@ class SegmentedContour:
 
 @dataclass
 class CoverageReport:
-    """Abdeckungs-Bericht: Welcher Anteil der Kontur wird geschnitten?
+    """Konturabdeckung der gewählten Runs.
 
     Attributes
     ----------
     per_loop          : loop_id -> (abgedeckte Punkte, Punkte gesamt)
-    missing_positions : loop_id -> Positionen die NICHT abgedeckt sind
+    missing_positions : loop_id -> nicht abgedeckte Positionen
     """
     per_loop: dict[int, tuple[int, int]] = field(default_factory=dict)
     missing_positions: dict[int, list[int]] = field(default_factory=dict)
@@ -691,15 +654,11 @@ def covered_positions(
 
 @dataclass
 class GridCoverageReport:
-    """Abdeckung der gesamten Querschnittsfläche (alle Gitterpunkte).
-
-    Das eigentliche Ziel: ALLE Punkte (Innen- und Außenpunkte) müssen
-    von der Klinge überstrichen werden, damit das Objekt vollständig
-    zertrennt ist. 100 % = alle Gitterpunkte in der Swept Area.
+    """Abdeckung der Querschnittsfläche (alle Gitterpunkte, innen + außen).
 
     Attributes
     ----------
-    mask : (N,) bool-Array über grid.coords -- True = geschnitten
+    mask : (N,) bool-Array über grid.coords, True = geschnitten
     """
     total: int
     mask: np.ndarray
@@ -735,11 +694,7 @@ class GridCoverageReport:
 
 
 def compute_grid_coverage(grid: PointGrid, runs: list[CutRun]) -> GridCoverageReport:
-    """Welche Gitterpunkte (innen + außen) liegen in den Swept Areas?
-
-    Berücksichtigt nur feasible Runs mit berechneter Kinematik
-    (siehe planning.RunKinematics.attach).
-    """
+    """Gitterpunkte in den Swept Areas (nur ausführbare Runs mit Kinematik)."""
     import shapely
     coords = grid.coords
     mask = np.zeros(len(coords), dtype=bool)

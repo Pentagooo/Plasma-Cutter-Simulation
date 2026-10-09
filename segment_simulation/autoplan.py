@@ -1,36 +1,22 @@
-from __future__ import annotations
+"""Automatische Segmentwahl: Geometrie rein, Schnittplan raus.
 
-"""Automatische Segmentwahl 
+Ablauf
+------
+1. Kandidaten: jedes Segment einmal durchrechnen (Swept Area)
+   -> Matrix A[p, s] = Gitterpunkt p liegt in der Swept Area von s
+2. Greedy Set Cover: bestes Verhältnis neue Punkte / Zusatzzeit (Pierce
+   entfällt beim Verketten), bis nichts Neues mehr erreichbar ist
+3. Pruning: redundante Segmente raus, teuerste zuerst
+4. Verschmelzen + Sequencer: zusammenhängende Segmente -> ein CutRun,
+   Held-Karp ordnet, LinkPlanner verbindet
 
-Geometrie rein, fertiger Schnittplan raus 
+Unerreichbare Punkte (tiefer als die effektive Klingentiefe) meldet
+``n_unreachable``.
 
-Ablauf 
----------------------------------
-1. **Kandidaten + Abdeckbarkeits-Matrix**: Jedes automatisch erzeugte
-   Primitiv-Segment wird einmal  durchgerechnet
-   (``RunKinematics.attach`` -> Swept Area). Daraus entsteht die
-   Matrix ``A[p, s]`` = "Gitterpunkt p liegt in der Swept Area
-   von Segment s". Danach ist jede Coverage-Frage eine 
-   numpy-Mengenoperation 
-2. **Greedy Set-Cover**: Wiederholt das Segment mit dem besten
-   Verhältniss "neue Punkte / Zusatzzeit" wählen, bis keine neuen
-   Punkte mehr erreichbar sind. Die Zusatzzeit berücksichtigt das
-   Verketten
-3. **Pruning**: Redundante Segmente werden wieder entfernt,
-   teuerste zuerst. 
-4. **Verschmelzen + Sequencer**: Zusammenhängende gewählte Segmente
-   verschmelzen zu einem CutRun der vorhandene
-   Sequencer (Held-Karp) ordnet die Runs zeitminimal, LinkPlanner verbindet kollisionsfrei.
-
-Punkte, die physikalisch unerreichbar sind (tiefer im Material als die
-effektive Klingentiefe), werden  als ``n_unreachable`` gemeldet
-
-
-Einstieg
---------
-Headless:  ``result = auto_plan(grid)``  ->  AutoPlanResult
-UI:        Taste **P** in der SegmentCutSimulation.
+Einstieg: ``auto_plan(grid)`` (headless) oder Taste P im Simulator.
 """
+
+from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
@@ -89,9 +75,7 @@ class AutoPlanResult:
     n_candidates: int = 0
     n_selected: int = 0
     n_unreachable: int = 0
-    # Die gewählten Primitiv-Segmente (seg_ids, nach Pruning) -- erlaubt
-    # nachgelagerten Stufen (z.B. DP-Split der Simulation), die Auswahl
-    # segmentbasiert weiterzuverarbeiten statt nur über die Runs.
+    # gewählte seg_ids nach Pruning (für die DP-Split-Stufe der Simulation)
     selected_segments: list[int] = field(default_factory=list)
 
     def summary(self) -> str:
@@ -141,8 +125,7 @@ class AutoPlanner:
         self.kinematics = kinematics
         self.sequencer = sequencer
 
-        # Segment-Reihenfolge je Loop (für Nachbarschaft + Verschmelzen):
-        # contour.segments ist je Loop in Knoten-Reihenfolge angelegt.
+        # Segmente je Loop in Knoten-Reihenfolge (Nachbarn, Verschmelzen)
         self._loop_segs: dict[int, list[int]] = {}
         for seg in contour.segments:
             self._loop_segs.setdefault(seg.loop_id, []).append(seg.seg_id)
@@ -196,16 +179,16 @@ class AutoPlanner:
     # ------------------------------------------------------------------
 
     def _neighbors(self, s: int) -> tuple[int, int]:
-        """Die beiden  Nachbar-Segmente von s auf seinem Loop."""
+        """Die beiden Nachbar-Segmente von s auf seinem Loop."""
         order = self._loop_segs[self.contour.segments[s].loop_id]
         i = order.index(s)
         k = len(order)
         return order[(i - 1) % k], order[(i + 1) % k]
 
     def _extra_time(self, s: int, selected: set[int]) -> float:
-        """Zusatzzeit, wenn Segment s zur Auswahl hinzukommt:
-        Schnittzeit + Pierce -- Pierce entfällt, wenn s nahtlos an ein
-        bereits gewähltes Nachbarsegment anschließt. """
+        """Zusatzzeit von s: Schnittzeit + Pierce (entfällt neben einem
+        gewählten Nachbarn).
+        """
         t = self._cut_time[s]
         prev_s, next_s = self._neighbors(s)
         if prev_s not in selected and next_s not in selected:
@@ -266,8 +249,8 @@ class AutoPlanner:
     # ------------------------------------------------------------------
 
     def _merge_to_runs(self, selected: list[int]) -> list[CutRun]:
-        """Merged zusammenhängende gewählte Primitiv-Segmente je
-        Loop zu einem CutRun (eine Zündung pro Gruppe).
+        """Verschmilzt zusammenhängende gewählte Segmente je Loop zu einem
+        CutRun (eine Zündung je Gruppe).
         """
         runs: list[CutRun] = []
         sel_set = set(selected)
@@ -282,8 +265,8 @@ class AutoPlanner:
             if len(chosen) == len(order):
                 groups = [list(order)]  # kompletter Loop: einmal herum
             else:
-                # Zyklisch zusammenhängende Gruppen: Gruppenstart =
-                # gewähltes Segment, dessen Vorgänger NICHT gewählt ist.
+                # Gruppenstart = gewähltes Segment mit nicht gewähltem
+                # Vorgänger (zyklisch)
                 groups = []
                 k = len(order)
                 for i, s in enumerate(order):
@@ -333,7 +316,7 @@ class AutoPlanner:
 
     def _make_run(self, run_id: int, loop, loop_id: int,
                   start_pos: int, end_pos: int) -> CutRun:
-        """CutRun in +1-Richtung von start_pos nach end_pos, inkl."""
+        """CutRun in +1-Richtung von start_pos nach end_pos, inkl. Kinematik."""
         positions = loop.arc_positions(start_pos, end_pos, +1)
         run = CutRun(
             run_id=run_id, loop_id=loop_id,
