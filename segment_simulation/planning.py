@@ -35,16 +35,15 @@ except ImportError:
 # Endpunkte näher als CHAIN_TOL = nahtlos (kein Eilgang, keine Zündung)
 CHAIN_TOL = 1e-6
 
-# max. Abstand der TCP-Stützpunkte [mm]: Klinge dreht an Ecken stetig mit
-# (sonst fehlt der Eckfächer in der Swept Area)
+# max. Abstand der TCP-Stützpunkte [mm]
+#   - Swept Area = Vierecke zwischen den Klingenlagen benachbarter Stützpunkte
+#   - zeigt die Klinge an beiden Enden anders (z.B. Innenecke), fehlt sonst
+#     Fläche dazwischen
 TCP_SAMPLE_STEP = 3.0
 
-# Eckenregel: An einer Konturecke ist die Projektion auf den Offset-Ring
-# mehrdeutig (der ganze Eckbogen ist gleich weit entfernt). Daher
-# TCP-Punkt = Bogenmitte (p + clearance * Winkelhalbierende):
-#   - eindeutig und richtungsunabhängig
-#   - gleiche Station für beide Nachbarsegmente (nahtloses Verketten)
-#   - Eckbogen hälftig geteilt, Summe der Segmentzeiten = durchgehender Schnitt
+# Eckenregel: TCP-Punkt einer Konturecke = Mitte des Eckbogens
+#   - Projektion auf den Offset-Ring wäre dort mehrdeutig
+#   - beide Nachbarsegmente teilen sich den Eckbogen hälftig
 
 # ---------------------------------------------------------------------------
 # Punktezahl (Score)
@@ -248,7 +247,7 @@ class RunKinematics:
         path: list[np.ndarray], max_step: float
     ) -> list[np.ndarray]:
         """Fügt Zwischenpunkte ein, bis kein Abschnitt länger als
-        max_step ist (Klingenrichtung dreht dann kontinuierlich mit)."""
+        max_step ist (siehe TCP_SAMPLE_STEP)."""
         if len(path) < 2:
             return path
         out: list[np.ndarray] = [path[0]]
