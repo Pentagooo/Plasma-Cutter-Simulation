@@ -1,19 +1,13 @@
 """Lernkurve: Modellgüte über der Zahl der Trainingsinstanzen.
 
-- Modelle auf den ersten N Instanzen des Datensatzes (Katalogreihenfolge,
-  Familien gemischt)
-- Test auf festem Satz ungesehener Instanzen (seed 7: n Katalog + reale)
+- Modelle auf den ersten N Instanzen des Datensatzes
+- Test auf festem Satz ungesehener Instanzen
 - Optimum aus Label-Ordner (``--opt-labels``) oder einmal mit dem Lehrer
-  gerechnet und gecacht (``optimum_seed<s>_n<n>_P<hash>.csv``); Instanzen
-  über ``k_max`` zählen nicht in die Lücke
+  gerechnet und gecacht; Instanzen über ``k_max`` zählen nicht in die Lücke
+- Ausgabe: ``<out>/learning_curve.csv`` + ``.md``, Benchmark-CSV je Modell
+  unter ``<out>/learning_curve_runs/``
 
-Ausgabe: ``<out>/learning_curve.csv`` / ``.md`` (+ Benchmark-CSV je Modell
-unter ``<out>/learning_curve_runs/``).
-
-CLI (aus dem Elternordner von plasma_cutter):
-    python -m plasma_cutter.segment_simulation.surrogate.learning_curve \\
-        --dataset .../runs/main --n-list 100,250,500,1000,2000,4000 --n-eval 60 \\
-        [--opt-labels .../runs/main_eval/labels] [--seg-divisor 24 --seg-min-spacings 3]
+Aufrufe siehe README, Optionen per ``--help``.
 """
 
 from __future__ import annotations

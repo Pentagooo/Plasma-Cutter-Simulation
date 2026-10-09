@@ -3,20 +3,12 @@
 - Instanzen aus ``instances`` (Katalog, stabil über (seed, idx))
 - Label je Segment: 1, wenn es in der optimalen Auswahl des Lehrers liegt
 - Cache: eine .npz je Instanz in ``<out>/labels/``, Dateiname mit
-  ``LABEL_VERSION`` + ``params_hash`` (keine Verwechslung bei anderer
-  Physik/Segmentierung); ein Neustart labelt nur die fehlenden
-- Prozess-Pool mit Gleitfenster: bei Zeitbudget oder Stopp-Datei keine
-  neuen Instanzen, laufende rechnen zu Ende
+  ``LABEL_VERSION`` + ``params_hash``; ein Neustart labelt nur die fehlenden
+- Prozess-Pool: bei Zeitbudget oder Stopp-Datei keine neuen Instanzen,
+  laufende rechnen zu Ende
 - reale Testgeometrien nur mit ``--include-real`` (sonst Testsatz)
 
-CLI (aus dem Elternordner von plasma_cutter):
-    python -m plasma_cutter.segment_simulation.surrogate.dataset \\
-        --n 2000 --seed 42 --n-jobs 8 [--k-max 18] [--out .../runs/main]
-        [--seg-divisor 18 --seg-min-spacings 3]      # eine feste Segmentierung
-        [--seg-mix "12/4:0.5,16/3:0.3,20/3:0.2"]     # Mischung je Instanz (gewichtet)
-        [--max-minutes 1080 --stop-file STOP]         # Budget / sanfter Stopp
-        [--extra-labels DIR ...]                      # fremde Labels mitnehmen
-        [--dry-run]                                   # nur Segmentzahlen
+Aufrufe siehe README, Optionen per ``--help``.
 """
 
 from __future__ import annotations

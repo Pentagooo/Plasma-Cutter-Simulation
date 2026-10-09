@@ -2,14 +2,9 @@
 
 - HistGradientBoostingClassifier (Fallback: GradientBoostingClassifier)
 - sagt je Segment p(s) voraus: liegt s in der optimalen Auswahl des Lehrers?
-- der Planer nutzt nur die Rangfolge von p(s); tau wird mitgespeichert
-- keine Korrektheitsgarantie nötig: die Coverage sichert der Planer
-  (exakte Masken, Verify, Fallback)
-- gespeichertes Modell trägt den Stempel aus ``params``; ``load_model``
-  bricht bei anderer Version/Physik ab, warnt bei anderer Segmentierung
+- der Planer nutzt die Rangfolge von p(s)
 
-CLI (aus dem Elternordner von plasma_cutter):
-    python -m plasma_cutter.segment_simulation.surrogate.model --train
+Training per ``--train``, Aufruf siehe README.
 """
 
 from __future__ import annotations

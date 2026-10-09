@@ -1,17 +1,10 @@
 """Benchmark: Automatic Planner, Surrogat (mit/ohne Pruning), Brute Force.
 
-- ungesehene Instanzen: seed 7, n Katalog + reale Testgeometrien
-- je Instanz: Ausführungszeit T, Coverage, Fallback, Planzeit
-  (Best-of-``reps`` nach Warm-up)
-- Optimum vom Lehrer: direkt (sequentiell, bis ``k_max``) oder aus einem
-  Label-Ordner (``--opt-labels DIR``, erzeugt mit ``dataset --seed 7``)
-- alle Planer mit gleicher Segmentierung und gleichem Kerf
+- ungesehene Instanzen, je Planer Ausführungszeit, Coverage und Planzeit
+- Optimum direkt vom Lehrer oder aus einem Label-Ordner (``--opt-labels``)
+- Ausgabe: ``<out>/benchmark.csv`` + ``.md``
 
-Ausgabe: ``<out>/benchmark.csv`` und ``benchmark.md``.
-
-CLI (aus dem Elternordner von plasma_cutter):
-    python -m plasma_cutter.segment_simulation.surrogate.benchmark \\
-        --n 30 --seed 7 --reps 3 [--model PFAD] [--out DIR] [--opt-labels DIR]
+Aufrufe siehe README, Optionen per ``--help``.
 """
 
 from __future__ import annotations
