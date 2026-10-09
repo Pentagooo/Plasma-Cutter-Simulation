@@ -1,57 +1,33 @@
-from __future__ import annotations
-
-"""Interaktive Segment-Simulation für den Plasma-Schnitt (Lichtschwert).
+"""Simulation für Schnittprimitive.
 
 Modell
 ------
-  - Der TCP (Brennergriff) hält den konstanten Mindestabstand
-    ``MINIMUM_GAP`` zum Material und fährt auf dem Offset-Pfad um die
-    Kontur.
-  - Die Klinge (Plasmastrahl) ragt vom TCP in Richtung Objekt. Ihre
-    Länge ist LINEAR geschwindigkeitsabhängig:
-        L(v) = blade_length - blade_slope * v
-    Sowohl die Grundlänge als auch die maximale Geschwindigkeit sind
-    einstellbar (CLI: --blade-length, --blade-slope, --v-max, --v-cut).
-  - Ziel ist es, ALLE Punkte der Querschnittsfläche (Innen- UND
-    Außenpunkte) zu überstreichen -- nicht nur die Kontur. Die
-    Coverage wird über die Swept Areas der Klinge berechnet.
-  - Punktezahl (Score): besteht vor allem aus der Zeit -- weniger Zeit
-    ist besser (siehe planning.compute_score).
+  - Der TCP hält den konstanten Abstand ``MINIMUM_GAP`` zum Material.
+  - Der Plasmastrahl ragt vom TCP in Richtung Objekt; seine Länge fällt
+    linear mit der Geschwindigkeit: L(v) = blade_length - blade_slope * v.
 
 Ablauf
 ------
-1. Die Kontur wird automatisch in Segmente unterteilt; die Segment-
-   Knoten (weiße Kreise) sind die möglichen Start-/Endpunkte.
-2. Linksklick #1: Startpunkt wählen (snappt auf den nächsten Knoten).
-   Linksklick #2: Endpunkt -> der Konturbogen dazwischen wird als
-   Schnitt-Segment übernommen. Zweimal derselbe Knoten = ganzer Loop.
-3. Das Panel zeigt live die Querschnitts-Coverage; fehlende Punkte
-   werden rot markiert.
-4. Enter: Sequencer ordnet die Segmente optimal, der LinkPlanner
-   verbindet sie kollisionsfrei, die Ausführung wird animiert und am
-   Ende gibt es die Punktezahl.
+1. Die Kontur wird in Segmente geteilt; die Knoten sind die möglichen
+   Start-/Endpunkte.
+2. Zwei Klicks wählen Start- und Endknoten, der Bogen dazwischen wird
+   geschnitten (zweimal derselbe Knoten = ganzer Loop).
+3. Das Panel zeigt die Coverage, fehlende Punkte sind rot.
+4. Enter: Reihenfolge und Verbindungsfahrten planen, Ablauf animieren.
 
 Bedienung
 ---------
-  Linksklick  : Start-/Endpunkt wählen
-  Rechtsklick / U : letztes Segment entfernen
-  A           : alle restlichen Konturen komplett auswählen
-  P / Button  : Automatic Planner (Greedy Set Cover + Pruning des AutoPlanner;
-                mit Geschwindigkeitsregel AN dieselbe DP-Split-Geschwindigkeitsstufe
-                wie Surrogat und Brute Force, AUS = Basisgeschwindigkeit)
-  S / Button  : Surrogat (gelerntes Modell ordnet die Segmente, Greedy
-                Set Cover auf exakten Masken, ein Planbau, exakter Verify,
-                Fallback auf die Greedy-Auswahl)
-  B / Button  : Brute Force (exakte, zeitminimale Segmentauswahl;
-                vollständige Aufzählung aller Teilmengen -- derselbe
-                Lehrer, mit dem die Trainingslabels entstehen)
-  V / Button  : Geschwindigkeitsregel an/aus (Geschwindigkeitszuweisung je
-                Run; wirkt auf Planung, Animation und alle Planer)
-  Enter       : Planen + Simulation starten
-  R           : alles zurücksetzen
-  Esc         : Auswahl/Animation abbrechen
-  +/- / Slider: Animations-Geschwindigkeit
+  Linksklick        Start-/Endpunkt wählen
+  Rechtsklick / U   letztes Segment entfernen
+  A                 alle restlichen Konturen auswählen
+  P / S / B         Automatic Planner / Surrogat / Brute Force (auch Buttons)
+  V                 Geschwindigkeitsregel an/aus (auch Button)
+  Enter             planen und Simulation starten
+  R / Esc           zurücksetzen / abbrechen
+  + / - / Slider    Animationsgeschwindigkeit
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -59,18 +35,8 @@ from pathlib import Path
 
 import numpy as np
 
-# --- Interaktives Backend beim Direktstart erzwingen -------------------
-# Was passiert: Beim direkten Ausführen dieses Skripts wird ein echtes,
-# interaktives Fenster erzwungen, damit Auswahl per Maus/Tasten und die
-# Animation funktionieren.
-# Warum: Manche IDEs (z.B. PyCharm "Show plots in tool window"/SciView
-# oder "Run with Python Console") setzen ein NICHT-interaktives Backend.
-# Dann zeigt plt.show() nur ein statisches Bild -- es "läuft nichts".
-# Wie umgesetzt: ``matplotlib.use(...)`` muss VOR dem Import von pyplot
-# erfolgen. Nur beim Direktstart (``__name__ == "__main__"``) schalten wir
-# auf TkAgg um; als importierte Bibliothek bleibt das Backend unangetastet
-# (Headless-Betrieb/Tests funktionieren weiter). Fällt TkAgg aus (kein
-# tkinter), behalten wir das bestehende Backend und warnen.
+# Beim Direktstart TkAgg erzwingen, weil manche IDEs ein nicht-interaktives
+# Backend setzen. matplotlib.use() muss vor dem Import von pyplot stehen.
 import matplotlib
 if __name__ == "__main__":
     try:
@@ -122,33 +88,22 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Konstanten / Defaults
 # ---------------------------------------------------------------------------
+# Jede Änderung hier macht Labels und Modell ungültig (phys_hash).
 
-# Konstanter Mindestabstand TCP <-> Materialoberfläche [mm].
-# Wird dem Cutter als minimum_gap mitgegeben (CLI: --clearance).
 MINIMUM_GAP = 3.6
 
-# Lineares Klingenmodell  L(v) = BLADE_LENGTH - BLADE_SLOPE * v
-BLADE_LENGTH = 29.9   # Grundlänge der Schneide bei v = 0 [mm]
-BLADE_SLOPE = 0.327   # Verkürzung pro mm/s [mm / (mm/s)]
+BLADE_LENGTH = 29.9
+BLADE_SLOPE = 0.327
 
-# Geschwindigkeiten [mm/s]
-DEFAULT_CUTTING_SPEED = 19.4      # minimale Schnittgeschwindigkeit v_cut
-DEFAULT_MAX_CUTTING_SPEED = 34.7  # maximale Schnittgeschwindigkeit v_max
-RAPID_SPEED = 100.0               # Eilgang zwischen Schnitten
+DEFAULT_CUTTING_SPEED = 19.4
+DEFAULT_MAX_CUTTING_SPEED = 34.7
+RAPID_SPEED = 100.0
 
-# Zeitaufschlag je Geschwindigkeitswechsel IM laufenden Schnitt [s]
-# (Roboterrampe + Lichtbogen-Transient; t_switch).
 T_SWITCH = 0.0
 
-# Zündung (Pierce): t_pierce = PIERCE_T0 + PIERCE_K * SHEET_THICKNESS
-PIERCE_T0 = 1.0               # [s]
-PIERCE_K = 0.0                # [s/mm] (Pauschale, dickenunabhängig)
-SHEET_THICKNESS = 15.0        # Nennblechdicke [mm]
-
-# ALLE Werte dieses Blocks sind label-relevant: eine Änderung macht die
-# Trainingslabels und das Surrogat-Modell ungültig. ``surrogate.params``
-# stempelt sie (phys_hash) in Labels, Datensatz und Modell; ``load_model``
-# und ``train_model`` brechen bei Abweichung ab.
+PIERCE_T0 = 1.0
+PIERCE_K = 0.0
+SHEET_THICKNESS = 15.0
 
 
 def make_default_cutter(
@@ -163,22 +118,7 @@ def make_default_cutter(
     pierce_k: float = PIERCE_K,
     sheet_thickness: float = SHEET_THICKNESS,
 ) -> Cutter:
-    """Cutter mit linearem L(v)-Klingenmodell für die Segment-Simulation.
-
-    Was passiert
-    ------------
-    Baut einen fertig konfigurierten ``Cutter`` (Brenner/Werkzeug)
-    zusammen, der die Lichtschwert-Annahme verwendet: Die Klingenlänge
-    hängt linear von der Schnittgeschwindigkeit ab. Wird genutzt, wenn
-    dem Konstruktor kein eigener Cutter übergeben wird.
-
-    Wie umgesetzt
-    -------------
-    Das lineare ``BladeLengthModel`` L(v) = clip(L0 - slope * v, 0, L0)
-    landet zusammen mit dem Pierce-Modell in ``CuttingAssumptions`` und
-    schließlich im zurückgegebenen ``Cutter`` zusammen mit den
-    Geschwindigkeiten und dem Mindestabstand.
-    """
+    """Cutter mit linearem L(v)-Klingenmodell und den Werten oben."""
     blade = BladeLengthModel(L0=blade_length, slope=blade_slope)
     assumptions = CuttingAssumptions(
         blade=blade,
@@ -195,13 +135,7 @@ def make_default_cutter(
 
 
 def _surrogate_tools():
-    """Lazy-Import der Planer-Helfer (Geschwindigkeitsregel, Automatic Planner/Surrogat/Brute Force).
-
-    Erst beim ersten Gebrauch importieren: hält den Simulationsstart
-    schlank (scipy/sklearn werden nur bei Bedarf geladen) und vermeidet
-    einen Import-Zyklus (das surrogate-Paket importiert seinerseits
-    ``make_default_cutter`` aus diesem Modul lazy).
-    """
+    """Lazy-Import der Planer-Helfer (schneller Start, kein Import-Zyklus)."""
     from types import SimpleNamespace
     try:
         from .surrogate.features import phys_from_cutter
@@ -263,25 +197,7 @@ _C = dict(
 
 
 class _State(Enum):
-    """Zustände der UI-Zustandsmaschine (was die Klicks gerade tun).
-
-    Was passiert
-    ------------
-    Steuert, wie der nächste Linksklick interpretiert wird und ob
-    Eingaben überhaupt erlaubt sind:
-      - IDLE      : nichts ausgewählt, der nächste Klick setzt einen
-                    Startpunkt.
-      - PICK_END  : Startpunkt steht, der nächste Klick setzt den
-                    Endpunkt und legt damit das Schnitt-Segment an.
-      - ANIMATING : die Simulation läuft gerade, Klicks/Tasten zur
-                    Auswahl sind gesperrt.
-
-    Wie umgesetzt
-    -------------
-    Reines ``Enum`` mit ``auto()``-Werten; das aktuelle Mitglied liegt
-    in ``SegmentCutSimulation._state`` und wird in den Event-Handlern
-    (_on_click/_on_key) abgefragt und umgeschaltet.
-    """
+    """Zustände der UI: wartet auf Start, wartet auf Ende, Animation läuft."""
     IDLE      = auto()   # wartet auf Startpunkt-Klick
     PICK_END  = auto()   # Startpunkt gesetzt, wartet auf Endpunkt
     ANIMATING = auto()
@@ -289,25 +205,7 @@ class _State(Enum):
 
 @dataclass
 class _Frame:
-    """Ein Animations-Frame: Zeitpunkt, TCP, Klingenspitze, Modus.
-
-    Was passiert
-    ------------
-    Ein einzelnes "Standbild" der Bewegung. Die Animation ist nichts
-    weiter als eine lange Liste solcher Frames, die der Reihe nach
-    abgespielt wird.
-
-    Wie umgesetzt
-    -------------
-    Schlankes ``dataclass``-Datenpaket:
-      - ``time`` : simulierte Uhrzeit dieses Bildes [s].
-      - ``pos``  : Position des TCP (Brennergriff) als (x, y).
-      - ``tip``  : Position der Klingenspitze, oder ``None`` solange der
-                   Brenner nur verfährt (kein Strahl).
-      - ``mode`` : "pierce" (zünden), "cut" (schneiden) oder "link"
-                   (verfahren) -- steuert Farben und Coverage-Stempel.
-      - ``run_id``: zu welchem Schnitt-Run der Frame gehört (-1 = Link).
-    """
+    """Ein Animations-Frame (Zeit, TCP, Klingenspitze, Modus, Run)."""
     time: float
     pos: np.ndarray              # TCP-Position
     tip: np.ndarray | None       # Klingenspitze (None bei link)
@@ -325,9 +223,7 @@ class SegmentCutSimulation:
     Parameters
     ----------
     grid                   : PointGrid der Geometrie
-    cutter                 : Cutter; minimum_gap = konstanter Mindestabstand,
-                             blade_length(v) = lineare Klingenlänge.
-                             None -> make_default_cutter()
+    cutter                 : Cutter (None -> make_default_cutter())
     kerf_width             : Schnittspaltbreite [mm]
     target_segment_length  : Ziel-Segmentlänge [mm] (None = automatisch)
     fps                    : Animations-Framerate
@@ -341,23 +237,13 @@ class SegmentCutSimulation:
         target_segment_length: float | None = None,
         fps: int = 30,
     ) -> None:
-        # Was passiert: Hier wird der gesamte Simulationszustand einmalig
-        # aufgebaut -- Geometrie einlesen, Kinematik/Planer-Objekte
-        # erzeugen und alle Zustandsfelder (Auswahl, Plan, Animation,
-        # matplotlib-Handles) auf ihre Startwerte setzen.
-        # Wie umgesetzt: reine Feldzuweisungen; die UI selbst (Figure,
-        # Achsen, Widgets) entsteht erst später in run().
         self.grid = grid
         self.cutter = cutter or make_default_cutter()
         self.kerf_width = kerf_width
         self.fps = fps
 
-        # Klingenlänge bei der eingestellten Schnittgeschwindigkeit
         self.blade_length = self.cutter.blade_length(self.cutter.cutting_speed)
 
-        # Kontur in Segmente zerlegen und das Materialpolygon ableiten:
-        # Grundlage für Knoten (Klickziele), Kollisionsprüfung und
-        # Coverage. material = die zu schneidende Querschnittsfläche.
         self.contour = SegmentedContour.from_grid(
             grid, target_segment_length=target_segment_length)
         self.material = self.contour.material_polygon()
@@ -367,17 +253,11 @@ class SegmentCutSimulation:
             blade_length=self.blade_length,
             kerf=kerf_width,
         )
-        # LinkPlanner verbindet zwei Schnitte kollisionsfrei (Eilgang um
-        # das Material herum); Sequencer bestimmt die günstigste
-        # Reihenfolge der Schnitte und ruft dazu den LinkPlanner auf.
         self.link_planner = LinkPlanner(
             self.material, clearance=self.cutter.minimum_gap)
         self.sequencer = Sequencer(
             self.cutter, self.contour, self.link_planner)
 
-        # Warnung, falls die Klinge bei dieser Geschwindigkeit kürzer
-        # ist als der Mindestabstand -- dann erreicht der Strahl das
-        # Material gar nicht und es kann nicht geschnitten werden.
         if self.kinematics.effective_depth <= 0:
             print(f"WARNING: plasma arc too short! "
                   f"L(v={self.cutter.cutting_speed}) "
@@ -385,14 +265,7 @@ class SegmentCutSimulation:
                   f"{self.cutter.minimum_gap:.1f} mm -> no cut possible. "
                   f"Reduce the speed or increase the arc length.")
 
-        # Auswahl-/Planungszustand:
-        #   _runs    : vom Nutzer gewählte Schnitt-Segmente (CutRun).
-        #   _plan    : geordneter+verbundener Plan (None = noch ungeplant).
-        #   _score   : zeitbasierte Punktezahl (None = noch nicht bewertet).
-        #   _pending : (loop_id, pos) des bereits geklickten Startpunkts
-        #              während auf den Endpunkt gewartet wird.
-        #   _snap_radius : Fangradius in mm für das Knoten-Snapping; vier
-        #              Konturpunkt-Abstände gelten als "nah genug".
+        # Auswahl und Plan; Fangradius = vier Konturpunkt-Abstände.
         self._runs: list[CutRun] = []
         self._plan: CutPlan | None = None
         self._score: float | None = None
@@ -400,40 +273,21 @@ class SegmentCutSimulation:
         self._pending: tuple[int, int] | None = None  # (loop_id, pos)
         self._snap_radius = grid.contour_spacing * 4.0
 
-        # Animations-Zustand:
-        #   _anim      : laufende FuncAnimation (None = keine).
-        #   _speed     : Abspielfaktor (Slider, 0.25x .. 16x).
-        #   _anim_mask : bool-Array über alle Gitterpunkte; True = von der
-        #                Klinge während der Animation bereits überstrichen.
-        #   _status_msg: aktuelle Statuszeile für das Info-Panel.
+        # Animation; _anim_mask = bereits überstrichene Gitterpunkte.
         self._anim: FuncAnimation | None = None
         self._speed = 1.0
         self._anim_mask: np.ndarray | None = None
         self._status_msg = ""
 
-        # Geschwindigkeitsregel: Geschwindigkeitszuweisung je Run.
-        #   _use_rule45 : Schalter (Button/Taste V). AUS = bisheriges
-        #                 Verhalten, alle Runs mit cutter.cutting_speed.
-        #   _run_speeds : run_id -> zugewiesene Geschwindigkeit [mm/s],
-        #                 bei der letzten Planung vergeben (leer = Basis).
-        #   _chain_sel  : Segment-Auswahl (seg_ids) hinter der aktuellen
-        #                 Run-Liste, wenn sie von einem Planer stammt
-        #                 (Taste P/S/B). Nur dann kann Enter die
-        #                 DP-Split-Kettenausführung nutzen (Sub-Runs mit
-        #                 eigener Geschwindigkeit, nahtlos ohne Pierce)
-        #                 -- dieselbe Semantik wie Lehrer/Automatic Planner/Surrogat.
-        #                 None = manuelle Auswahl -> Geschwindigkeitsregel je Run.
+        # Geschwindigkeitsregel: _run_speeds = run_id -> v [mm/s];
+        # _chain_sel = seg_ids eines Planers (P/S/B), None = manuelle Auswahl.
         self._use_rule45 = False
         self._run_speeds: dict[int, float] = {}
         self._chain_sel: list[int] | None = None
-        #   _model      : Surrogat-Modell, beim ersten Druck auf S lazy
-        #                 geladen (artifacts/surrogate_model.joblib)
+        # Surrogat-Modell, beim ersten S geladen
         self._model = None
 
-        # matplotlib-Handles, erst in run() befüllt (vorher None):
-        # Hauptachse (Zeichnung), Statistik-Panel rechts sowie die
-        # Bedien-Widgets (Speed-Slider, Reset-, Automatic Planner-, Surrogat-,
-        # Brute-Force- und Geschwindigkeitsregel-Button).
+        # matplotlib-Handles, erst in run() gesetzt
         self._fig: plt.Figure | None = None
         self._ax_main: plt.Axes | None = None
         self._ax_stats: plt.Axes | None = None
@@ -448,22 +302,7 @@ class SegmentCutSimulation:
 
     @classmethod
     def run_with_dialog(cls, **kwargs) -> SegmentCutSimulation | None:
-        """Geometrie per Datei-Dialog wählen und Simulation starten.
-
-        Was passiert
-        ------------
-        Komfort-Einstieg ohne festen Geometriepfad: Es öffnet sich ein
-        Datei-Auswahldialog; nach der Auswahl wird die Simulation gebaut
-        und sofort gestartet.
-
-        Wie umgesetzt
-        -------------
-        ``initial_dir`` wird aus ``kwargs`` herausgelöst und an
-        ``PointGrid.from_json_dialog`` weitergereicht. Bricht der Nutzer
-        den Dialog ab (Rückgabe ``None``), endet die Methode mit
-        ``None``. Sonst werden die restlichen ``kwargs`` an den
-        Konstruktor durchgereicht und ``run()`` aufgerufen.
-        """
+        """Geometrie per Datei-Dialog wählen und Simulation starten."""
         initial_dir = kwargs.pop("initial_dir", None)
         grid = PointGrid.from_json_dialog(initial_dir=initial_dir)
         if grid is None:
@@ -474,55 +313,21 @@ class SegmentCutSimulation:
 
     @property
     def runs(self) -> list[CutRun]:
-        """Kopie der aktuell gewählten Schnitt-Runs (lesender Zugriff).
-
-        Gibt bewusst eine flache Kopie zurück, damit Aufrufer die
-        interne Auswahl ``_runs`` nicht versehentlich verändern.
-        """
+        """Kopie der gewählten Runs."""
         return list(self._runs)
 
     @property
     def plan(self) -> CutPlan | None:
-        """Der zuletzt erstellte Plan, oder ``None`` falls noch keiner.
-
-        Wird nach jeder Auswahl-Änderung intern auf ``None`` gesetzt
-        und erst durch Enter (build_plan) wieder befüllt.
-        """
+        """Zuletzt gebauter Plan (None, solange nicht geplant)."""
         return self._plan
 
     def grid_coverage(self) -> GridCoverageReport:
-        """Aktuelle Querschnitts-Coverage der gewählten Segmente.
-
-        Was passiert: prüft, welcher Anteil ALLER Gitterpunkte des
-        Querschnitts von den Swept Areas der gewählten Runs überdeckt
-        wird (Ziel ist 100 %).
-        Wie umgesetzt: delegiert an ``compute_grid_coverage`` (segments.py)
-        mit dem aktuellen Gitter und der Run-Auswahl; liefert einen
-        ``GridCoverageReport`` mit Maske, Anteil und Restpunkten.
-        """
+        """Querschnitts-Coverage der gewählten Runs."""
         return compute_grid_coverage(self.grid, self._runs)
 
     def run(self) -> None:
-        """Baut das Fenster auf und startet die interaktive Schleife.
-
-        Was passiert
-        ------------
-        Erzeugt das gesamte UI: links die große Zeichenfläche, rechts
-        das Statistik-Panel, unten den Speed-Slider und den Reset-Button.
-        Danach wird gezeichnet und die matplotlib-Ereignisschleife läuft
-        bis zum Schließen des Fensters.
-
-        Wie umgesetzt
-        -------------
-        Eine ``Figure`` mit ``GridSpec`` (Verhältnis 4 : 1.15) liefert
-        die beiden Hauptachsen. Zwei eigene Achsen tragen die Widgets
-        (``Slider``, ``Button``). Klick- und Tasten-Events werden über
-        ``mpl_connect`` an ``_on_click``/``_on_key`` gebunden. Ein
-        ``_redraw()`` zeichnet den Startzustand, ``plt.show()`` blockiert
-        bis zum Fensterschluss.
-        """
-        # Matplotlib-Standardtasten freimachen: 's' wäre "Speichern",
-        # 'p' wäre "Pan" -- hier sind es Surrogat und Automatic Planner.
+        """Baut das Fenster auf und startet die Ereignisschleife."""
+        # 's' (Speichern) und 'p' (Pan) für Surrogat und Automatic Planner frei
         plt.rcParams["keymap.save"] = ["ctrl+s"]
         plt.rcParams["keymap.pan"] = []
 
@@ -550,8 +355,6 @@ class SegmentCutSimulation:
         self._reset_button.label.set_fontsize(9)
         self._reset_button.on_clicked(lambda _evt: self._full_reset())
 
-        # Die drei automatischen Auswahlverfahren nebeneinander (die
-        # manuelle Auswahl ist der Klick in die Zeichnung).
         ax_gp = self._fig.add_axes([0.419, 0.035, 0.165, 0.045])
         self._gp_button = Button(
             ax_gp, "Automatic planner (P)", color="#D0DEF0", hovercolor="#A8C4E4")
@@ -582,9 +385,7 @@ class SegmentCutSimulation:
 
         self._redraw()
 
-        # Sicherheitshinweis: Läuft trotz allem noch ein nicht-interaktives
-        # Backend (z.B. PyCharm-Werkzeugfenster), erscheint nur ein Standbild
-        # ohne Animation. Statt stiller Verwirrung eine klare Meldung geben.
+        # Warnung, falls doch ein nicht-interaktives Backend aktiv ist
         _backend = matplotlib.get_backend().lower()
         if _backend == "agg" or "inline" in _backend or "interagg" in _backend:
             print(
@@ -598,14 +399,7 @@ class SegmentCutSimulation:
         plt.show()
 
     def _title(self) -> str:
-        """Baut die Titelzeile mit den Eckdaten des Lichtschwerts.
-
-        Was passiert: erzeugt den Fenstertitel mit Dateiname (falls
-        bekannt), Klingenlänge bei Schnittgeschwindigkeit, effektiver
-        Schnitttiefe und konstantem Mindestabstand.
-        Wie umgesetzt: reine f-String-Formatierung; der Dateiname wird
-        nur angehängt, wenn ``grid._source_path`` existiert.
-        """
+        """Titelzeile mit Dateiname, L(v), effektiver Tiefe und Mindestabstand."""
         name = (f"  -  {self.grid._source_path.stem}"
                 if hasattr(self.grid, "_source_path") else "")
         return (f"Segment Simulation{name}  |  "
@@ -619,24 +413,7 @@ class SegmentCutSimulation:
     # ------------------------------------------------------------------
 
     def _add_run(self, loop_id: int, start_pos: int, end_pos: int) -> CutRun:
-        """Erzeugt einen CutRun inkl. Lichtschwert-Kinematik.
-
-        Was passiert
-        ------------
-        Legt aus zwei Knotenpositionen (Start/Ende) auf derselben Kontur
-        ein neues Schnitt-Segment an, berechnet dessen Bewegung samt
-        Klinge und fügt es der Auswahl hinzu.
-
-        Wie umgesetzt
-        -------------
-        ``covered_positions`` ermittelt zuerst, welche Punkte dieser
-        Kontur schon von früheren Runs abgedeckt sind (damit der neue
-        Run sich nahtlos anschließen kann). ``contour.make_run`` baut
-        den Bogen, ``kinematics.attach`` ergänzt TCP-Pfad,
-        Klingenspitzen und Swept Area. Der Run wird angehängt; ein evtl.
-        bestehender Plan/Score wird verworfen (auf ``None``), da die
-        Auswahl sich geändert hat.
-        """
+        """Legt einen Run zwischen zwei Knoten an und verwirft den Plan."""
         covered = covered_positions(self.contour, self._runs, loop_id)
         run = self.contour.make_run(
             run_id=len(self._runs) + 1,
@@ -654,50 +431,17 @@ class SegmentCutSimulation:
     # ------------------------------------------------------------------
 
     def _on_speed(self, val: float) -> None:
-        """Reagiert auf den Speed-Slider (Abspielgeschwindigkeit).
-
-        Was passiert
-        ------------
-        Stellt ein, wie schnell die Animation läuft. Läuft gerade eine
-        Animation, wird ihr Timer sofort angepasst, sonst wird der Wert
-        nur gemerkt und beim nächsten Start verwendet.
-
-        Wie umgesetzt
-        -------------
-        Der neue Faktor landet in ``_speed``. Bis Faktor 2x wird die
-        echte Framerate (Timer-Intervall) erhöht; darüber bleibt das
-        Intervall konstant und der ``frame_gen`` überspringt stattdessen
-        Frames (siehe _run_animation). ``_draw_stats`` aktualisiert die
-        Anzeige des Faktors.
+        """Speed-Slider: bis 2x über die Framerate, darüber überspringt
+        ``frame_gen`` Frames.
         """
         self._speed = val
         if self._anim is not None and self._anim.event_source is not None:
-            # Bis 2x über echte FPS beschleunigen; darüber würde der
-            # Timer zu eng -- dann skippt der Generator stattdessen Frames.
             effective_fps = self.fps * min(self._speed, 2.0)
             self._anim.event_source.interval = max(1, int(1000 / effective_fps))
         self._draw_stats()
 
     def _on_click(self, event) -> None:
-        """Maus-Handler: Start-/Endpunkt setzen oder Undo.
-
-        Was passiert
-        ------------
-        Auf der Hauptachse wählt Linksklick nacheinander Start- und
-        Endpunkt eines Schnitts (jeweils auf den nächsten Knoten
-        gefangen). Zwei Klicks ergeben ein Segment; liegen sie auf
-        verschiedenen Konturen, wird abgelehnt. Rechtsklick macht den
-        letzten Schritt rückgängig.
-
-        Wie umgesetzt
-        -------------
-        Klicks außerhalb ``_ax_main`` oder während der Animation werden
-        ignoriert. Maustaste 3 ruft ``_undo_last``, nur Taste 1 zählt
-        weiter. Die Klickposition wird per ``contour.snap_node`` auf den
-        nächsten Segmentknoten innerhalb ``_snap_radius`` gerundet. Die
-        Zustandsmaschine (``_state``) entscheidet, ob der Knoten Start
-        (IDLE -> PICK_END) oder Ende (PICK_END -> _add_run -> IDLE) ist.
-        """
+        """Linksklick setzt Start-/Endknoten, Rechtsklick macht rückgängig."""
         if event.inaxes is not self._ax_main:
             return
         if self._state == _State.ANIMATING:
@@ -709,8 +453,6 @@ class SegmentCutSimulation:
         if event.button != 1:
             return
 
-        # Klickkoordinate auf den nächstgelegenen Knoten "einfangen"
-        # (snap); ohne Treffer im Fangradius passiert nichts.
         xy = np.array([event.xdata, event.ydata])
         snapped = self.contour.snap_node(xy, max_dist=self._snap_radius)
         if snapped is None:
@@ -719,12 +461,10 @@ class SegmentCutSimulation:
             return
 
         if self._state == _State.IDLE:
-            # Erster Klick: Startknoten merken, auf Endpunkt warten.
             self._pending = snapped
             self._state = _State.PICK_END
             self._status_msg = "Select end point ..."
         elif self._state == _State.PICK_END:
-            # Zweiter Klick: Endknoten. Muss auf derselben Kontur liegen.
             loop_id, start_pos = self._pending
             end_loop, end_pos = snapped
             if end_loop != loop_id:
@@ -743,28 +483,9 @@ class SegmentCutSimulation:
         self._redraw()
 
     def _on_key(self, event) -> None:
-        """Tastatur-Handler: Geschwindigkeit, Auswahl, Planung, Reset.
+        """Tastatur-Handler (Bedienung siehe Modulkopf).
 
-        Was passiert
-        ------------
-        Wertet alle Tastaturbefehle aus:
-          +/-  : Animation schneller/langsamer
-          R    : alles zurücksetzen
-          Esc  : Animation stoppen bzw. laufende Auswahl abbrechen
-          U    : letztes Segment entfernen
-          A    : alle restlichen Konturen automatisch wählen
-          P    : Automatic Planner (Greedy Set Cover + Pruning)
-          S    : Surrogat (gelerntes Modell + exakte Nachrechnung)
-          B    : Brute Force (vollständige Aufzählung aller Teilmengen)
-          V    : Geschwindigkeitsregel an/aus (Geschwindigkeitszuweisung je Run)
-          Enter: planen und Simulation starten
-
-        Wie umgesetzt
-        -------------
-        Früh-Returns prüfen die Tasten der Reihe nach. ``+``/``-``
-        schieben den Speed-Slider (verdoppeln/halbieren mit Begrenzung).
-        Auswahl-ändernde Tasten (U/A/P/S/B/V/Enter) sind während der
-        Animation gesperrt -- nur ``escape`` und ``r`` wirken dann noch.
+        Während der Animation wirken nur +/-, R und Esc.
         """
         if event.key in ("+", "="):
             self._speed_slider.set_val(min(self._speed * 2.0, 16.0))
@@ -787,7 +508,7 @@ class SegmentCutSimulation:
                 self._redraw()
             return
 
-        # Ab hier: nur erlaubt, wenn gerade KEINE Animation läuft.
+        # ab hier nicht während der Animation
         if self._state == _State.ANIMATING:
             return
 
@@ -824,15 +545,7 @@ class SegmentCutSimulation:
             return
 
     def _undo_last(self) -> None:
-        """Macht den letzten Auswahl-Schritt rückgängig.
-
-        Was passiert: Wartet die Auswahl gerade auf den Endpunkt, wird
-        nur dieser halbe Schritt verworfen. Sonst wird das zuletzt
-        hinzugefügte Segment wieder entfernt.
-        Wie umgesetzt: im Zustand PICK_END nur ``_pending`` löschen und
-        nach IDLE zurück; andernfalls ``_runs.pop()`` und Plan/Score
-        invalidieren. Abschließend neu zeichnen.
-        """
+        """Verwirft den wartenden Startpunkt oder das letzte Segment."""
         if self._state == _State.PICK_END:
             self._pending = None
             self._state = _State.IDLE
@@ -845,24 +558,7 @@ class SegmentCutSimulation:
         self._redraw()
 
     def _select_all_remaining(self) -> None:
-        """Wählt für jede Kontur die noch fehlenden Bögen aus.
-
-        Was passiert
-        ------------
-        Taste A: Vervollständigt die Auswahl, so dass am Ende JEDE
-        Kontur (Außen- und Lochkonturen) komplett abgedeckt ist. Schon
-        gewählte Bereiche bleiben erhalten, nur die Lücken werden
-        ergänzt.
-
-        Wie umgesetzt
-        -------------
-        Pro Loop wird über ``covered_positions`` die bereits abgedeckte
-        Punktmenge bestimmt. Ist nichts abgedeckt, wird ein voller Loop
-        (Start = Ende am Ankerknoten) angelegt. Sonst liefert
-        ``_missing_arcs`` die unabgedeckten Bögen, die einzeln per
-        ``_add_run`` ergänzt werden; ``covered`` wird dabei mitgeführt,
-        damit sich folgende Bögen korrekt anschließen.
-        """
+        """Taste A: ergänzt je Kontur die noch fehlenden Bögen."""
         added = 0
         for loop in self.contour.loops:
             covered = covered_positions(self.contour, self._runs, loop.loop_id)
@@ -871,11 +567,9 @@ class SegmentCutSimulation:
             nodes = self.contour.nodes[loop.loop_id]
             anchor = nodes[0] if nodes else 0
             if not covered:
-                # Kontur noch völlig frei -> kompletter Loop in einem Run.
                 self._add_run(loop.loop_id, anchor, anchor)
                 added += 1
             else:
-                # Fehlende zusammenhängende Bögen einzeln hinzufügen
                 for a, b in self._missing_arcs(loop.n, covered):
                     run = self._add_run(loop.loop_id, a, b)
                     covered.update(run.positions)
@@ -886,77 +580,47 @@ class SegmentCutSimulation:
 
     @staticmethod
     def _missing_arcs(n: int, covered: set[int]) -> list[tuple[int, int]]:
-        """Zusammenhängende unabgedeckte Bereiche als (start, ende)-Paare.
+        """Unabgedeckte Bögen eines Rings als (start, ende)-Paare.
 
-        Start/Ende sind die angrenzenden ABGEDECKTEN Punkte, damit der
-        neue Schnitt nahtlos an Bestehendes anschließt.
-
-        Was passiert
-        ------------
-        Auf einem RINGförmig nummerierten Loop (Positionen 0..n-1) wird
-        bestimmt, welche zusammenhängenden Stücke noch fehlen, und
-        jeweils als (Startknoten, Endknoten) zurückgegeben.
-
-        Wie umgesetzt
-        -------------
-        1. Fehlende Positionen aufsteigend sammeln.
-        2. In Gruppen aufeinanderfolgender Positionen bündeln.
-        3. Ringübergang behandeln: läuft die erste Gruppe bei 0 los und
-           die letzte bei n-1, sind beide über die Naht verbunden und
-           werden verschmolzen.
-        4. Pro Lücke je einen Nachbarn nach außen erweitern
-           ((g[0]-1)%n bzw. (g[-1]+1)%n), damit der neue Schnitt einen
-           bereits abgedeckten Punkt überlappt und nahtlos anschließt.
+        Start/Ende sind die angrenzenden abgedeckten Punkte, damit der
+        neue Schnitt nahtlos anschließt.
         """
         missing = sorted(p for p in range(n) if p not in covered)
         if not missing:
             return []
-        # Schritt 2: laufend in Gruppen direkt benachbarter Indizes teilen.
         groups: list[list[int]] = [[missing[0]]]
         for p in missing[1:]:
             if p == groups[-1][-1] + 1:
                 groups[-1].append(p)
             else:
                 groups.append([p])
-        # Schritt 3: Naht 0<->n-1 schließen (erste+letzte Gruppe mergen).
+        # Naht 0 <-> n-1 schließen
         if len(groups) > 1 and groups[0][0] == 0 and groups[-1][-1] == n - 1:
             groups[0] = groups[-1] + groups[0]
             groups.pop()
-        # Schritt 4: jede Lücke um einen abgedeckten Nachbarn aufweiten.
         return [((g[0] - 1) % n, (g[-1] + 1) % n) for g in groups]
 
     def _greedy_select(self) -> None:
-        """Automatic Planner (Taste P / Button): Greedy Set Cover + Pruning des
-        ``AutoPlanner`` (siehe autoplan.py) ersetzt die aktuelle Auswahl.
+        """Taste P: Auswahl des Automatic Planner (``autoplan.AutoPlanner``).
 
-        Die Segment-Auswahl wird in ``_chain_sel`` gemerkt: mit Geschwindigkeitsregel
-        AN nutzt Enter dann die DP-Split-Kettenausführung -- exakt die
-        Geschwindigkeitsstufe von ``surrogate.planner.greedy_plus_plan``,
-        Surrogat und Brute Force (fairer Vergleich). Mit Geschwindigkeitsregel AUS
-        fahren alle Runs Basisgeschwindigkeit (klassischer Greedy-Planer).
-        Enter startet danach wie gewohnt die Planung + Animation.
+        Die Segment-Auswahl landet in ``_chain_sel``; mit Geschwindigkeitsregel
+        nutzt Enter dieselbe DP-Split-Stufe wie Surrogat und Brute Force.
         """
         self._status_msg = "Automatic planner running ..."
         self._draw_stats()
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()
 
-        # Statusmeldung sofort sichtbar machen (draw+flush), bevor der
-        # ggf. mehrere Sekunden dauernde Auto-Planer das UI blockiert.
         planner = AutoPlanner(
             self.grid, self.contour, self.cutter,
             self.kinematics, self.sequencer)
         result = planner.plan()
 
-        # Auswahl komplett durch das Greedy-Ergebnis ersetzen; Plan/Score
-        # und ein evtl. hängender Pending-Punkt werden zurückgesetzt.
         self._runs = list(result.runs)
         self._plan = None
         self._score = None
         self._pending = None
         self._run_speeds = {}
-        # Segment-Auswahl merken -> Enter kann die DP-Split-Ketten-
-        # ausführung nutzen (gleiche Semantik wie greedy_plus_plan).
         self._chain_sel = list(result.selected_segments) or None
         self._state = _State.IDLE
 
@@ -970,32 +634,11 @@ class SegmentCutSimulation:
         self._redraw()
 
     def _brute_force_select(self) -> None:
-        """Brute-Force-Löser (Taste B / Button): ersetzt die Auswahl durch
-        die EXAKT zeitminimale Segmentauswahl des Aufzählungs-Lehrers v2
+        """Taste B: exakt zeitminimale Segmentauswahl
         (``surrogate.teacher.exhaustive_plan``).
 
-        Was passiert
-        ------------
-        Alle Segment-Teilmengen werden aufgezählt, jede vollständige
-        Abdeckung wird EXAKT gebaut und bewertet -- derselbe Lehrer, mit
-        dem die Trainingslabels entstehen (bei 14 Segmenten ~1 min, bei
-        16 einige Minuten). Der Lehrer ist exakt im Raum Auswahl x
-        Reihenfolge x Richtung bei DIESER Segmentierung. Steht der
-        Geschwindigkeitsregel-Schalter auf AN, ist die Geschwindigkeitszuweisung
-        (DP-Split je Kette) Teil der Zielfunktion; sonst wird die reine
-        Basis-Zeit minimiert. Enter startet danach wie gewohnt die
-        Planung + Animation.
-
-        Wie umgesetzt
-        -------------
-        Der Lehrer bekommt die Kontur DIESER Simulation (gleiche
-        Segmentierung wie in der Anzeige). Die optimalen seg_ids werden
-        über ``merge_covering_runs`` coverage-erhaltend zu CutRuns
-        verschmolzen und bei Basisgeschwindigkeit angeheftet; die
-        Geschwindigkeitsregel-Anhebung passiert erst beim Planen (Enter, über
-        ``_chain_sel`` als DP-Split-Ketten -- reproduziert das gemeldete
-        Lehrer-T exakt). Bei zu vielen Segmenten (``TeacherSkipped``)
-        bleibt die Auswahl unverändert.
+        Zählt alle Teilmengen auf, derselbe Lehrer wie für die Labels. Bei zu
+        vielen Segmenten (``TeacherSkipped``) bleibt die Auswahl unverändert.
         """
         if self._state == _State.ANIMATING:
             return  # Button ist auch während der Animation klickbar
@@ -1015,8 +658,6 @@ class SegmentCutSimulation:
         self._fig.canvas.flush_events()
 
         try:
-            # rein exakt: jede vollständige Abdeckung wird gebaut --
-            # bei 14 Segmenten ~1 min, bei 16 einige Minuten
             result = exhaustive_plan(
                 self.grid, cutter=self.cutter, kerf=self.kerf_width,
                 contour=self.contour, speed_rule=self._use_rule45,
@@ -1029,9 +670,7 @@ class SegmentCutSimulation:
             return
 
         phys = phys_from_cutter(self.cutter)
-        # check_partial=True: exakt dieselbe Merge-Entscheidung wie der
-        # Lehrer (jede Gruppe wird gegen ihre Einzelsegmente geprüft),
-        # damit die Runs dessen T und Coverage reproduzieren.
+        # check_partial=True: dieselbe Merge-Entscheidung wie der Lehrer
         runs = merge_covering_runs(
             self.contour, result.selected, self.material, phys,
             self.cutter.cutting_speed, self.kerf_width,
@@ -1043,8 +682,6 @@ class SegmentCutSimulation:
         self._score = None
         self._pending = None
         self._run_speeds = {}
-        # Segment-Auswahl merken: Enter kann damit die DP-Split-Ketten-
-        # ausführung nutzen (reproduziert das gemeldete Lehrer-T exakt).
         self._chain_sel = list(result.selected)
         self._state = _State.IDLE
 
@@ -1071,24 +708,10 @@ class SegmentCutSimulation:
         return self._model
 
     def _surrogate_select(self) -> None:
-        """Surrogat (Taste S / Button): ersetzt die Auswahl durch die des
-        gelernten Surrogat-Planers (``surrogate.planner.surrogate_plan``).
+        """Taste S: Auswahl des Surrogat-Planers (``surrogate.planner.surrogate_plan``).
 
-        Was passiert
-        ------------
-        Merkmale nur aus Kontur + Distanzen -> Modell p(s) -> Greedy Set
-        Cover in p(s)-Reihenfolge auf EXAKTEN Singleton-Masken -> Pruning
-        -> ein Planbau (DP-Split + Held-Karp) -> ein exakter Verify ->
-        Fallback auf die Greedy-Auswahl, falls erreichbare Punkte fehlen.
-        Das Modell bestimmt nur die Reihenfolge; die Coverage-Garantie
-        hängt nie am Modell. Geschwindigkeitsregel-Schalter wie bei P und B.
-
-        Wie umgesetzt
-        -------------
-        Wie bei B: die gewählten seg_ids werden über
-        ``merge_covering_runs(check_partial=True)`` bei Basisgeschwindigkeit
-        materialisiert, ``_chain_sel`` merkt die Auswahl, Enter reproduziert
-        das gemeldete T über die DP-Split-Ketten.
+        Das Modell bestimmt nur die Reihenfolge; die Coverage-Garantie hängt
+        nie am Modell (Fallback auf die Greedy-Auswahl).
         """
         if self._state == _State.ANIMATING:
             return
@@ -1143,23 +766,15 @@ class SegmentCutSimulation:
         self._redraw()
 
     # ------------------------------------------------------------------
-    # Geschwindigkeitsregel (Geschwindigkeitszuweisung je Run)
+    # Geschwindigkeitsregel
     # ------------------------------------------------------------------
 
     def _toggle_rule45(self) -> None:
-        """Geschwindigkeitsregel an-/ausschalten (Taste V / Button).
+        """Taste V: Geschwindigkeitsregel an/aus.
 
-        AN  : Beim Planen (Enter) bekommt jeder Run die schnellste
-              coverage-erhaltende Schnittgeschwindigkeit;
-              die Klinge L(v) wird entsprechend kürzer. Auch der
-              Brute-Force-Löser optimiert dann mit dieser Regel.
-        AUS : Alle Runs fahren mit der Basis-Schnittgeschwindigkeit
-              (bisheriges Verhalten).
-
-        Ein bestehender Plan wird verworfen (die Zeiten würden sich
-        ändern); beim Ausschalten werden bereits angehobene Runs sofort
-        wieder bei Basisgeschwindigkeit angeheftet, damit Anzeige und
-        Coverage konsistent bleiben.
+        AN: jeder Run bekommt beim Planen die schnellste coverage-erhaltende
+        Geschwindigkeit. AUS: alle Runs mit Basisgeschwindigkeit. Ein
+        bestehender Plan wird verworfen.
         """
         if self._state == _State.ANIMATING:
             return
@@ -1176,8 +791,7 @@ class SegmentCutSimulation:
         self._redraw()
 
     def _style_rule_button(self) -> None:
-        """Beschriftung + Farbe des Geschwindigkeitsregel-Buttons an den Zustand
-        anpassen (grün = AN, grau = AUS)."""
+        """Beschriftung und Farbe des Regel-Buttons (grün = AN)."""
         if self._rule_button is None:
             return
         on = self._use_rule45
@@ -1188,13 +802,7 @@ class SegmentCutSimulation:
         self._rule_button.ax.set_facecolor(self._rule_button.color)
 
     def _reset_run_speeds(self) -> None:
-        """Heftet alle Runs wieder bei Basisgeschwindigkeit an.
-
-        Nötig, nachdem Geschwindigkeitsregel einzelnen Runs höhere Geschwindig-
-        keiten (und damit kürzere Klingen / kleinere Swept Areas)
-        zugewiesen hat -- sonst zeigt die Coverage-Anzeige die
-        angehobenen Sweeps, obwohl die Regel abgeschaltet wurde.
-        """
+        """Heftet alle Runs wieder bei Basisgeschwindigkeit an."""
         if not self._run_speeds:
             return
         for run in self._runs:
@@ -1202,19 +810,8 @@ class SegmentCutSimulation:
         self._run_speeds = {}
 
     def _assign_rule45_speeds(self) -> None:
-        """Geschwindigkeitsregel: schnellste coverage-erhaltende
-        Geschwindigkeit je Run zuweisen.
-
-        Wie umgesetzt
-        -------------
-        Zuerst werden alle Runs bei Basisgeschwindigkeit angeheftet
-        (Vorbedingung von ``speed_up_runs``). ``speed_up_runs``
-        bestimmt dann je Run analytisch die Zielgeschwindigkeit aus der
-        benötigten Schnitttiefe, heftet EINMAL bei v_r an und prüft
-        exakt, dass die Basis-Abdeckung erhalten bleibt (sonst Rückfall
-        auf die Basisgeschwindigkeit). Die Runs bleiben bei ihrer
-        zugewiesenen Geschwindigkeit angeheftet -- Swept Areas und
-        Animation zeigen die kürzere Klinge L(v).
+        """Geschwindigkeitsregel je Run (``speed_up_runs``); die Runs bleiben
+        bei ihrer Geschwindigkeit angeheftet.
         """
         tools = _surrogate_tools()
         phys_from_cutter, speed_up_runs = tools.phys_from_cutter, tools.speed_up_runs
@@ -1225,13 +822,8 @@ class SegmentCutSimulation:
             self.material, phys, self.kerf_width)
 
     def _apply_run_speeds(self, plan: CutPlan) -> None:
-        """Rechnet die Schnittzeiten des Plans auf die zugewiesenen
-        Regelgeschwindigkeiten um.
-
-        Reihenfolge und Verbindungen bleiben gültig: der Sequencer
-        minimiert nur die Übergänge (Eilgang + Zündungen), die von der
-        Schnittgeschwindigkeit unabhängig sind. Nur ``cut_time`` und
-        die Schrittdauern ändern sich.
+        """Rechnet die Schnittzeiten des Plans auf die Regelgeschwindigkeiten
+        um; Reihenfolge und Verbindungen bleiben gültig.
         """
         plan.cut_time = 0.0
         for step in plan.steps:
@@ -1246,27 +838,10 @@ class SegmentCutSimulation:
             plan.cut_time += t_cut
 
     def _assign_rule45_chains(self) -> list | None:
-        """DP-Split-Kettenausführung für eine Planer-Auswahl (Taste P/S/B).
+        """DP-Split-Ketten für eine Planer-Auswahl (P/S/B).
 
-        Was passiert
-        ------------
-        Baut aus der gemerkten Segment-Auswahl (``_chain_sel``) die
-        exakt verifizierten Ketten der gemeinsamen Planer-Stufe
-        (``build_speed_chains``): jede zusammenhängende Kette zerfällt
-        per DP in Sub-Runs mit eigener Geschwindigkeit; Übergänge
-        zwischen Sub-Runs sind nahtlos (kein Pierce, kein Eilgang, nur
-        ``t_switch`` bei Geschwindigkeitswechsel). Genau damit
-        rechnet der Brute-Force-Lehrer sein T aus -- Enter reproduziert
-        es dadurch exakt.
-
-        Wie umgesetzt
-        -------------
-        ``self._runs`` wird durch die Sub-Runs ersetzt (Anzeige +
-        Coverage laufen wie gewohnt über die Run-Liste), die
-        Geschwindigkeiten landen in ``_run_speeds``. Rückgabe ist die
-        Kettenliste für ``_build_chain_plan``; None, wenn keine Kette
-        gebaut werden konnte (Aufrufer fällt auf den Je-Run-Pfad
-        zurück).
+        Ersetzt ``_runs`` durch die Sub-Runs; Enter reproduziert damit das T
+        des Planers exakt. None, wenn keine Kette gebaut werden konnte.
         """
         tools = _surrogate_tools()
         phys = tools.phys_from_cutter(self.cutter)
@@ -1282,16 +857,11 @@ class SegmentCutSimulation:
         return chains
 
     def _build_chain_plan(self, chains: list) -> CutPlan:
-        """Plant Reihenfolge + Verbindungen für Ketten (CutPlan-Schritte).
+        """Plan für Ketten: Held-Karp über einen Makro-Knoten je Kette, dann
+        die Sub-Runs ausrollen.
 
-        Wie die Planer-Pipeline: der Sequencer (Held-Karp) sieht EINEN
-        Makro-Knoten je Kette (Endpunkte, Richtung frei); danach werden
-        die Sub-Runs in Kettenreihenfolge vom gewählten Ende aus
-        ausgerollt. Nahtlose Sub-Run-Übergänge kosten weder Pierce noch
-        Eilgang, nur ``t_switch`` bei Geschwindigkeitswechsel;
-        zwischen Ketten wird wie bisher verfahren + neu gezündet. Die
-        Schritte tragen die Link-Geometrie -> ``_build_frames`` kann den
-        Plan unverändert animieren.
+        Innerhalb einer Kette kostet ein Übergang nur ``t_switch``, zwischen
+        Ketten Eilgang und Pierce.
         """
         macros = [ch.macro for ch in chains]
         ordered, is_opt = self.sequencer.order_runs(macros)
@@ -1309,8 +879,7 @@ class SegmentCutSimulation:
                 if prev_end is not None:
                     gap = float(np.linalg.norm(run.tcp_start - prev_end))
                     if gap < CHAIN_TOL:
-                        # Nahtlos: Brenner bleibt an; nur t_switch bei
-                        # Geschwindigkeitswechsel.
+                        # nahtlos: Brenner bleibt an
                         needs_pierce = False
                         if prev_v is not None and abs(v - prev_v) > 1e-9:
                             plan.switch_time += t_switch
@@ -1344,14 +913,7 @@ class SegmentCutSimulation:
         return plan
 
     def _full_reset(self) -> None:
-        """Setzt die Simulation komplett auf Anfang zurück (Taste R).
-
-        Was passiert: stoppt eine laufende Animation, verwirft alle
-        gewählten Segmente, Plan, Score, Coverage-Maske und Status und
-        stellt die Abspielgeschwindigkeit auf 1x.
-        Wie umgesetzt: alle Zustandsfelder zurücksetzen, den Speed-Slider
-        (falls vorhanden) auf 1.0 stellen und neu zeichnen.
-        """
+        """Taste R: alles auf Anfang zurücksetzen."""
         self._stop_animation(redraw=False)
         self._runs.clear()
         self._plan = None
@@ -1372,29 +934,7 @@ class SegmentCutSimulation:
     # ------------------------------------------------------------------
 
     def _plan_and_animate(self) -> None:
-        """Enter-Aktion: Reihenfolge planen und die Ausführung animieren.
-
-        Was passiert
-        ------------
-        Aus der aktuellen Auswahl wird ein vollständiger Ablaufplan
-        gebaut (beste Reihenfolge + kollisionsfreie Verbindungswege),
-        bewertet (Punktezahl) und anschließend Schritt für Schritt als
-        Animation abgespielt.
-
-        Wie umgesetzt
-        -------------
-        1. Vorprüfung: Enthält die Auswahl nicht ausführbare Runs,
-           bricht die Methode mit Hinweis ab.
-        2. ``sequencer.build_plan`` liefert den geordneten ``CutPlan``;
-           eine ``LinkInfeasibleError`` (keine kollisionsfreie Verbindung)
-           wird abgefangen und gemeldet.
-        3. ``compute_score`` bewertet Zeit + Coverage; Konsolenausgabe der
-           Kennzahlen.
-        4. ``_build_frames`` diskretisiert den Plan, die Coverage-Maske
-           wird geleert, der Zustand auf ANIMATING gesetzt und
-           ``_run_animation`` gestartet.
-        """
-        # Schritt 1: nicht ausführbare Segmente blockieren die Planung.
+        """Enter: Geschwindigkeiten zuweisen, Plan bauen, bewerten und animieren."""
         infeasible = [r for r in self._runs if not r.is_feasible]
         if infeasible:
             names = ", ".join(f"R{r.run_id}" for r in infeasible)
@@ -1403,14 +943,8 @@ class SegmentCutSimulation:
             self._draw_stats()
             return
 
-        # Geschwindigkeitsregel: Geschwindigkeiten zuweisen (AN) bzw. eine frühere
-        # Anhebung zurücknehmen (AUS) -- VOR dem Coverage-Report, damit
-        # dieser die tatsächlichen Swept Areas bewertet. Stammt die
-        # Auswahl von einem Planer (Taste P/S/B, ``_chain_sel``), wird die
-        # DP-Split-Kettenausführung genutzt (Sub-Runs mit eigener
-        # Geschwindigkeit, nahtlos) -- dieselbe Semantik, mit der der
-        # Brute-Force-Lehrer sein T berechnet. Manuelle Auswahlen sind
-        # nicht segment-ausgerichtet -> Geschwindigkeitsregel je Run wie bisher.
+        # Vor dem Coverage-Report: Planer-Auswahl über DP-Split-Ketten,
+        # manuelle Auswahl über die Regel je Run.
         chains = None
         if self._use_rule45:
             self._status_msg = "Speed rule: assigning speeds ..."
@@ -1433,8 +967,6 @@ class SegmentCutSimulation:
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()
 
-        # Schritt 2: Reihenfolge + Verbindungen berechnen. Schlägt eine
-        # kollisionsfreie Verbindung fehl, ist der Plan nicht umsetzbar.
         try:
             self._plan = (self._build_chain_plan(chains) if chains
                           else self.sequencer.build_plan(self._runs))
@@ -1445,9 +977,7 @@ class SegmentCutSimulation:
             print(f"[INFEASIBLE] {exc}")
             self._redraw()
             return
-        # Geschwindigkeitsregel je Run: Schnittzeiten des Plans auf die zugewiesenen
-        # Geschwindigkeiten umrechnen (Reihenfolge bleibt gültig). Der
-        # Ketten-Plan trägt seine Geschwindigkeiten bereits.
+        # der Ketten-Plan trägt seine Geschwindigkeiten schon
         if self._run_speeds and not chains:
             self._apply_run_speeds(self._plan)
         self._score = compute_score(self._plan.total_time, report.fraction)
@@ -1461,8 +991,6 @@ class SegmentCutSimulation:
             print(f"  Speed rule v [mm/s]: {v_txt}")
         print(f"  Score: {self._score:.0f}")
 
-        # Schritt 4: Plan in Einzelbilder zerlegen, Coverage-Maske leeren
-        # und die Wiedergabe starten.
         frames = self._build_frames(self._plan)
         if not frames:
             self._status_msg = "Nothing to simulate."
@@ -1474,49 +1002,27 @@ class SegmentCutSimulation:
         self._run_animation(frames)
 
     def _build_frames(self, plan: CutPlan) -> list[_Frame]:
-        """Diskretisiert den Plan in Animations-Frames.
-
-        Was passiert
-        ------------
-        Wandelt den abstrakten Plan (eine Folge aus Schnitt- und
-        Verfahr-Schritten) in eine flache, zeitlich geordnete Liste von
-        Einzelbildern um, die ``_run_animation`` der Reihe nach abspielt.
-
-        Wie umgesetzt
-        -------------
-        Eine mitlaufende Uhr ``t`` summiert die Dauer jedes Teilstücks.
-        Die Hilfsfunktion ``along`` erzeugt Frames entlang einer
-        Polylinie: Pro Kante wird die Fahrzeit ``dt = Strecke/Tempo``
-        bestimmt und in ``round(dt*fps)`` Frames unterteilt; Position und
-        Klingenspitze werden dabei linear interpoliert. Pro Plan-Schritt:
-        bei "cut" zuerst optional Zünd-Frames (pierce, am Ort stehend),
-        dann der Schnitt mit Schnittgeschwindigkeit; bei "link" ein
-        Verfahrweg mit Eilganggeschwindigkeit (ohne Klinge).
+        """Zerlegt den Plan in Animations-Frames (Pierce stehend, Schnitt mit
+        der Geschwindigkeit des Runs, Verbindung im Eilgang).
         """
         frames: list[_Frame] = []
         t = 0.0
 
         def along(pts: np.ndarray, tips: np.ndarray | None,
                   speed: float, mode: str, run_id: int = -1) -> None:
-            """Frames entlang einer Polylinie (TCP), Klinge interpoliert.
-
-            Geht jede Kante (pts[i] -> pts[i+1]) durch, berechnet die
-            Fahrzeit aus Länge/Tempo und verteilt darauf so viele Frames,
-            dass die Ziel-Framerate ``fps`` erreicht wird. ``tips`` (die
-            Klingenspitzen) werden synchron mit ``f`` linear interpoliert;
-            ``None`` bedeutet "keine Klinge" (Verfahren).
+            """Frames entlang einer Polylinie; Klingenspitzen linear interpoliert
+            (None = keine Klinge).
             """
             nonlocal t
             for i in range(len(pts) - 1):
                 p1, p2 = pts[i], pts[i + 1]
                 d = float(np.linalg.norm(p2 - p1))
                 if d < 1e-9:
-                    continue  # Null-Kante (doppelter Punkt) überspringen
+                    continue  # doppelter Punkt
                 dt = d / speed
-                # Anzahl Frames so wählen, dass ~fps Bilder/s entstehen.
                 n_f = max(1, int(round(dt * self.fps)))
                 for k in range(1, n_f + 1):
-                    f = k / n_f  # Fortschritt 0..1 entlang der Kante
+                    f = k / n_f
                     tip = None
                     if tips is not None:
                         tip = tips[i] + f * (tips[i + 1] - tips[i])
@@ -1529,16 +1035,11 @@ class SegmentCutSimulation:
         for step in plan.steps:
             if step.kind == "cut" and step.run is not None:
                 run = step.run
-                # TCP fährt auf dem Offset-Pfad; Fallback auf die Kontur,
-                # falls kein eigener TCP-Pfad berechnet wurde.
                 tcp = (run.tcp_polyline if run.tcp_polyline is not None
                        else run.polyline)
                 tips = run.tip_polyline
                 if step.needs_pierce:
-                    # Zünden: Brenner steht still (pos = Startpunkt),
-                    # Klinge sticht ins Material. Als mehrere Frames über
-                    # die Pierce-Zeit, damit die Animation gleichmäßig
-                    # weiterläuft.
+                    # Zünden: Brenner steht, Frames über die Pierce-Zeit
                     t_p = self.cutter.pierce_time()
                     n_f = max(2, int(round(t_p * self.fps)))
                     tip0 = tips[0] if tips is not None else None
@@ -1548,42 +1049,22 @@ class SegmentCutSimulation:
                             pos=tcp[0], tip=tip0, mode="pierce",
                             run_id=run.run_id))
                     t += t_p
-                # Eigentlicher Schnitt: Regelgeschwindigkeit des
-                # Runs (falls zugewiesen), sonst Basisgeschwindigkeit.
                 v_run = self._run_speeds.get(run.run_id,
                                              self.cutter.cutting_speed)
                 along(tcp, tips, v_run, "cut", run_id=run.run_id)
             elif step.kind == "link" and step.link is not None:
-                # Verbindungsfahrt zwischen zwei Schnitten: Eilgang, keine
-                # Klinge (tips=None) -> Modus "link".
                 link = step.link
                 along(link.points, None, self.cutter.rapid_speed, "link")
         return frames
 
     def _run_animation(self, frames: list[_Frame]) -> None:
-        """Spielt die Frame-Liste als matplotlib-Animation ab.
-
-        Was passiert
-        ------------
-        Zeigt den Brenner (Kreis), die Klinge (Linie mit Glow), die
-        TCP- und Verfahr-Spuren sowie eine live mitwachsende Coverage
-        (gestempelte Punkte) und eine Info-Box mit Zeit/Status/Fortschritt.
-
-        Wie umgesetzt
-        -------------
-        Zuerst werden alle Animations-Artists einmalig angelegt
-        (``torch``, ``blade_line``/``blade_glow``, ``trail_*``,
-        ``live_scatter``, ``info``). Die geschachtelte ``update(idx)``
-        setzt sie pro Frame neu; ``stamp`` markiert die vom Klingen-
-        Viereck überstrichenen Gitterpunkte. ``frame_gen`` liefert die
-        Frame-Indizes und überspringt bei hohem Speed Bilder. Eine
-        ``FuncAnimation`` treibt das Ganze mit ``blit=False`` (es ändern
-        sich zu viele Artists für Blitting).
+        """Spielt die Frames als FuncAnimation ab (Brenner, Strahl, Spuren,
+        Live-Coverage, Info-Box).
         """
         self._redraw()
         ax = self._ax_main
 
-        # --- Artists einmalig anlegen (werden pro Frame nur aktualisiert) ---
+        # Artists einmalig anlegen, pro Frame nur aktualisieren
         torch = mpatches.Circle(
             tuple(frames[0].pos), self.grid.contour_spacing * 0.9,
             facecolor=_C["torch"], edgecolor=_C["torch_edge"],
@@ -1614,34 +1095,27 @@ class SegmentCutSimulation:
         total_time = frames[-1].time
         sim = self
         coords = self.grid.coords
-        # prev hält Modus/Position/Spitze des VORIGEN Frames -- nötig,
-        # um den Klingen-Sweep zwischen zwei Frames als Viereck zu stempeln
-        # und um Spurenwechsel (NaN-Trenner) zu erkennen.
+        # voriger Frame, für den Sweep-Stempel und die Spurtrenner
         prev = {"mode": "", "pos": None, "tip": None}
 
         import shapely as _shp
 
         def stamp(p1, t1, p2, t2):
-            """Markiert Gitterpunkte im Klingen-Viereck p1-p2-t2-t1.
-
-            Bildet aus zwei aufeinanderfolgenden Klingenlagen (TCP+Spitze
-            bei Frame n-1 und n) das überstrichene Viereck, weitet es um
-            den halben Kerf auf und markiert alle darin liegenden, noch
-            nicht abgedeckten Gitterpunkte. So wächst die Live-Coverage.
+            """Markiert die Gitterpunkte im überstrichenen Viereck p1-p2-t2-t1
+            (plus halber Kerf).
             """
             try:
                 quad = Polygon([tuple(p1), tuple(p2), tuple(t2), tuple(t1)])
                 if not quad.is_valid:
-                    quad = quad.buffer(0)  # selbstschneidend -> reparieren
+                    quad = quad.buffer(0)  # selbstschneidend
                 area = quad.buffer(sim.kerf_width / 2)
             except Exception:
                 return
-            # Nur noch nicht abgedeckte Punkte testen (spart Rechenzeit).
+            # nur noch nicht abgedeckte Punkte testen
             rem = ~sim._anim_mask
             if not rem.any():
                 return
             idx = np.where(rem)[0]
-            # Vektorisierter Point-in-Polygon-Test für alle Restpunkte.
             hit = _shp.contains_xy(area, coords[idx, 0], coords[idx, 1])
             new_idx = idx[hit]
             if len(new_idx):
@@ -1650,16 +1124,11 @@ class SegmentCutSimulation:
                 live_scatter.set_offsets(np.asarray(live_pts))
 
         def update(idx: int):
-            """Zeichnet einen einzelnen Frame (Callback der FuncAnimation).
-
-            Setzt Brennerposition, Klinge, Spuren, Coverage-Stempel und
-            die Info-Box für den Frame ``idx`` und gibt am Ende des
-            letzten Frames an ``_finish_animation`` ab.
-            """
+            """Zeichnet Frame ``idx`` (Callback der FuncAnimation)."""
             fr = frames[idx]
             torch.center = tuple(fr.pos)
 
-            # Klinge nur während Schneiden/Zünden zeigen, sonst leeren.
+            # Klinge nur beim Schneiden/Zünden
             if fr.tip is not None and fr.mode in ("cut", "pierce"):
                 blade_line.set_data([fr.pos[0], fr.tip[0]],
                                     [fr.pos[1], fr.tip[1]])
@@ -1685,10 +1154,8 @@ class SegmentCutSimulation:
                 link_ys.append(fr.pos[1])
                 trail_link.set_data(link_xs, link_ys)
 
-            # Live-Coverage: Klingen-Sweep zwischen zwei Frames stempeln.
-            # Beim Zünden (pierce) nur einmal die degenerierte Linie
-            # stempeln; beim Schneiden (cut) das Viereng vom vorigen zum
-            # aktuellen Frame -- aber nur bei stetigem Schnittverlauf.
+            # Live-Coverage: beim Zünden einmal, beim Schneiden das Viereck
+            # vom vorigen zum aktuellen Frame
             if fr.mode == "pierce" and fr.tip is not None:
                 if prev["mode"] != "pierce":
                     stamp(fr.pos, fr.tip, fr.pos, fr.tip)
@@ -1697,7 +1164,6 @@ class SegmentCutSimulation:
                     and prev["mode"] in ("cut", "pierce")):
                 stamp(prev["pos"], prev["tip"], fr.pos, fr.tip)
 
-            # Vorigen Frame für den nächsten Sweep/Trenner merken.
             prev["mode"] = fr.mode
             prev["pos"] = fr.pos
             prev["tip"] = fr.tip
@@ -1714,20 +1180,14 @@ class SegmentCutSimulation:
                 f"Points: {n_cov}/{n_tot} "
                 f"({100.0 * n_cov / max(1, n_tot):.1f} %)")
 
-            # Letzter Frame: Animation sauber beenden (Score, Endstatus).
             if idx >= n_frames - 1:
                 sim._finish_animation()
             return (torch, blade_line, blade_glow, trail_tcp, trail_link,
                     info, live_scatter)
 
         def frame_gen():
-            """Liefert die abzuspielenden Frame-Indizes der Reihe nach.
-
-            Bis Speed 2x wird jeder Frame gezeigt (Beschleunigung läuft
-            über das Timer-Intervall). Darüber werden Frames in Schritten
-            übersprungen (step = speed/2), damit die Wiedergabe trotz
-            begrenzter Framerate schneller wird; der letzte Frame wird
-            immer ausgegeben, damit das Ende sicher erreicht wird.
+            """Frame-Indizes; über 2x werden Frames übersprungen, der letzte
+            kommt immer.
             """
             cur = 0
             while cur < n_frames - 1:
@@ -1736,8 +1196,6 @@ class SegmentCutSimulation:
                 cur += max(1, step)
             yield n_frames - 1
 
-        # Timer-Intervall: bis 2x echte FPS erhöhen, darüber konstant
-        # (dann übernimmt frame_gen das Überspringen).
         effective_fps = self.fps * min(self._speed, 2.0)
         self._anim = FuncAnimation(
             self._fig, update, frames=frame_gen, save_count=n_frames,
@@ -1746,15 +1204,7 @@ class SegmentCutSimulation:
         self._fig.canvas.draw_idle()
 
     def _stop_animation(self, redraw: bool = True) -> None:
-        """Bricht eine laufende Animation ab (Esc/Reset).
-
-        Was passiert: stoppt die Wiedergabe sofort und schaltet zurück
-        in den Bearbeitungszustand IDLE -- im Gegensatz zu
-        ``_finish_animation`` OHNE Endbewertung.
-        Wie umgesetzt: den Timer der ``FuncAnimation`` stoppen (Fehler
-        ignorieren, falls schon weg), Referenz löschen und optional neu
-        zeichnen.
-        """
+        """Bricht die Animation ohne Endbewertung ab (Esc/Reset)."""
         if self._anim is not None:
             try:
                 self._anim.event_source.stop()
@@ -1766,16 +1216,7 @@ class SegmentCutSimulation:
             self._redraw()
 
     def _finish_animation(self) -> None:
-        """Schließt eine vollständig abgespielte Animation regulär ab.
-
-        Was passiert: stoppt den Timer, ermittelt die endgültige
-        Coverage und Punktezahl und zeigt eine Abschlussmeldung
-        (100 % durchtrennt vs. fehlende Punkte).
-        Wie umgesetzt: ``FuncAnimation`` stoppen, ``grid_coverage`` +
-        ``compute_score`` auswerten, Statustext setzen und mit
-        ``keep_animation_artists=True`` neu zeichnen, damit Brenner/
-        Klinge/Spuren des Endbildes sichtbar bleiben.
-        """
+        """Beendet die Animation regulär: Coverage, Punktezahl, Endmeldung."""
         if self._anim is not None:
             try:
                 self._anim.event_source.stop()
@@ -1802,38 +1243,16 @@ class SegmentCutSimulation:
     # ------------------------------------------------------------------
 
     def _redraw(self, keep_animation_artists: bool = False) -> None:
-        """Zeichnet beide Panels neu (Hauptbild + Statistik).
-
-        Bequemer Sammelaufruf nach jeder Zustandsänderung;
-        ``keep_animation_artists`` wird an ``_draw_main`` durchgereicht,
-        um das Endbild der Animation nicht zu löschen.
-        """
+        """Zeichnet Hauptbild und Statistik neu."""
         self._draw_main(keep_animation_artists)
         self._draw_stats()
 
     def _draw_main(self, keep_animation_artists: bool = False) -> None:
-        """Zeichnet die große linke Fläche: Geometrie, Auswahl, Plan.
+        """Zeichnet Gitterpunkte, Segmente, Runs, Knoten, Verbindungen, Legende.
 
-        Was passiert
-        ------------
-        Stellt den kompletten aktuellen Zustand dar: alle Gitterpunkte
-        (grau / grün abgedeckt / rot fehlend), die alternierend
-        eingefärbten Segmente, die gewählten Runs (Swept Area, TCP-Pfad,
-        Konturbogen mit Richtungspfeil und Label), die Segmentknoten, die
-        geplanten Verbindungen, den Pending-Startpunkt sowie Legende und
-        Achsen.
-
-        Wie umgesetzt
-        -------------
-        Bei ``keep_animation_artists`` wird die Achse NICHT geleert
-        (sonst verschwände das Endbild der Animation) und nur ein
-        ``draw_idle`` ausgelöst. Sonst ``ax.clear()`` und schrittweiser
-        Neuaufbau mit ``scatter``/``plot``/``fill``/``annotate``; die
-        Achsgrenzen werden aus der Bounding-Box aller Loops plus einem
-        Rand (inkl. Mindestabstand) gesetzt.
+        Mit ``keep_animation_artists`` bleibt das Endbild der Animation stehen.
         """
         ax = self._ax_main
-        # Bei Animationsende nicht alles löschen, nur Statistik anpassen
         if keep_animation_artists:
             self._fig.canvas.draw_idle()
             return
@@ -1872,11 +1291,9 @@ class SegmentCutSimulation:
 
         # Gewählte Runs: Swept Area + TCP-Pfad + Konturbogen
         for i, run in enumerate(self._runs):
-            # Feasible Runs zyklisch aus der Farbpalette, nicht
-            # ausführbare Runs einheitlich in der Infeasible-Farbe.
             c = (_C["run_colors"][i % len(_C["run_colors"])]
                  if run.is_feasible else _C["infeasible"])
-            # Swept Area (überstrichene Fläche)
+            # Swept Area
             if run.is_feasible and run.swept_polygon is not None:
                 geoms = (run.swept_polygon.geoms
                          if hasattr(run.swept_polygon, "geoms")
@@ -1896,13 +1313,13 @@ class SegmentCutSimulation:
             ax.plot(run.polyline[:, 0], run.polyline[:, 1], color=c,
                     linewidth=4.0, alpha=0.45, zorder=8,
                     solid_capstyle="round")
-            # Beschriftung "Rn" in der Bogenmitte ("!" markiert infeasible).
+            # Beschriftung "Rn" ("!" = nicht ausführbar)
             mid = run.polyline[len(run.polyline) // 2]
             label = f"R{run.run_id}" + ("" if run.is_feasible else " !")
             ax.annotate(label, xy=tuple(mid), fontsize=8.5,
                         fontweight="bold", color=c, zorder=16,
                         xytext=(4, 4), textcoords="offset points")
-            # Richtungspfeil am Bogenende zeigt die Schnittrichtung an.
+            # Pfeil = Schnittrichtung
             if len(run.polyline) >= 2:
                 p1, p2 = run.polyline[-2], run.polyline[-1]
                 ax.annotate("", xy=tuple(p2), xytext=tuple(p1),
@@ -1964,9 +1381,7 @@ class SegmentCutSimulation:
         ax.tick_params(labelsize=8)
         ax.grid(True, linestyle="--", alpha=0.22, color="#888")
 
-        # Achsgrenzen aus Bounding-Box aller Loops + Rand. Der Rand
-        # wächst mit der Objektgröße (span) und enthält den
-        # Mindestabstand, damit der außen liegende TCP-Pfad reinpasst.
+        # Rand inkl. Mindestabstand, damit der TCP-Pfad hineinpasst
         all_pts = np.vstack([l.points for l in self.contour.loops])
         span = max(float(np.ptp(all_pts[:, 0])), float(np.ptp(all_pts[:, 1])))
         m = span * 0.09 + 5.0 + self.cutter.minimum_gap
@@ -1986,24 +1401,7 @@ class SegmentCutSimulation:
     # ------------------------------------------------------------------
 
     def _draw_stats(self) -> None:
-        """Zeichnet das rechte Info-Panel (Kennzahlen + Status).
-
-        Was passiert
-        ------------
-        Fasst alle Zahlen zur aktuellen Lage zusammen: Querschnitts-
-        Coverage, die (letzten) gewählten Segmente, den optimierten Plan
-        mit Zeiten und Punktezahl, die Lichtschwert-/Cutter-Parameter und
-        unten eine farbige Statuszeile.
-
-        Wie umgesetzt
-        -------------
-        Die Achse wird geleert und als reines Textpanel genutzt
-        (``axis("off")`` + Hintergrund-Box). Zwei lokale Helfer schreiben
-        in Achsen-Koordinaten und führen die laufende y-Position ``y``
-        nach unten: ``kv`` für Label/Wert-Zeilen, ``header`` für
-        Abschnittsüberschriften. Farben signalisieren Vollständigkeit
-        (grün), Warnung (orange) oder Fehler (rot).
-        """
+        """Zeichnet das rechte Info-Panel (Coverage, Segmente, Plan, Brenner)."""
         ax = self._ax_stats
         ax.clear()
         ax.axis("off")
@@ -2018,7 +1416,7 @@ class SegmentCutSimulation:
         ax.plot([0.08, 0.92], [0.940, 0.940], color="#B0C4DE",
                 linewidth=0.8, transform=ax.transAxes)
 
-        # y = aktuelle Schreibhöhe (1.0 oben), dy = Zeilenabstand.
+        # y = Schreibhöhe (1.0 oben), dy = Zeilenabstand
         y = 0.915
         dy = 0.037
 
@@ -2055,8 +1453,7 @@ class SegmentCutSimulation:
                vc=_C["missing"], bold=report.fraction > 0)
 
         # --- Segmente ---
-        # Aus Platzgründen nur die letzten n_show Runs auflisten; ein
-        # "... N weitere" zeigt an, wie viele davor liegen.
+        # nur die letzten n_show Runs
         header("SELECTED SEGMENTS")
         if not self._runs:
             kv("(none)", "")
@@ -2119,9 +1516,7 @@ class SegmentCutSimulation:
         kv("Kerf", f"{self.kerf_width:.1f} mm")
 
         # --- Status ---
-        # Grundfarbe nach Zustand; bei IDLE wird die Farbe zusätzlich
-        # aus Schlüsselwörtern der Statusmeldung verschärft (Erfolg
-        # grün, Fehler/fehlende Punkte rot).
+        # Farbe nach Zustand, bei IDLE nach Schlüsselwörtern der Meldung
         if self._state == _State.IDLE:
             status, sc = (self._status_msg or "Click start point"), "#4B5563"
         elif self._state == _State.PICK_END:
@@ -2144,7 +1539,7 @@ class SegmentCutSimulation:
 
 
 # ---------------------------------------------------------------------------
-# Headless-API (für Tests / späteres supervised learning)
+# Headless-API
 # ---------------------------------------------------------------------------
 
 def check_segments(
@@ -2154,27 +1549,15 @@ def check_segments(
     kerf_width: float = 3.0,
     target_segment_length: float | None = None,
 ) -> tuple[CutPlan, GridCoverageReport, float]:
-    """Minimalanforderung ohne UI: gegebene Segmente prüfen + ordnen.
+    """Gegebene Segmente ohne UI prüfen und ordnen.
 
     Parameters
     ----------
-    node_pairs : Liste (loop_id, start_pos, end_pos) -- Knotenpositionen
-                 wie von SegmentedContour vergeben.
+    node_pairs : Liste (loop_id, start_pos, end_pos) der Knotenpositionen
 
     Returns
     -------
-    (CutPlan, GridCoverageReport, score) -- optimierte Reihenfolge inkl.
-    kollisionsfreier Verbindungen, Querschnitts-Abdeckung und
-    Punktezahl (Zeit-basiert).
-
-    Wie umgesetzt
-    -------------
-    Spiegelt den Datenfluss der GUI ohne Fenster: Kontur+Material aus
-    dem Gitter, Kinematik-/Planer-Objekte aufbauen, für jedes Knoten-
-    paar einen ``CutRun`` erzeugen und mit ``kin.attach`` die Klingen-
-    geometrie ergänzen. Nur ausführbare Runs gehen in
-    ``build_plan``; ``compute_grid_coverage`` und ``compute_score``
-    liefern Abdeckung und Bewertung.
+    (CutPlan, GridCoverageReport, score)
     """
     cutter = cutter or make_default_cutter()
     contour = SegmentedContour.from_grid(
@@ -2204,9 +1587,6 @@ def check_segments(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # CLI-Einstieg: Argumente parsen, daraus einen Cutter bauen, die
-    # Lichtschwert-Kennwerte ausgeben und die Simulation starten --
-    # entweder mit fester --geometry oder über den Datei-Dialog.
     import argparse
 
     parser = argparse.ArgumentParser(

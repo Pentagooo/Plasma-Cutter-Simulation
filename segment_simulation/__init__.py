@@ -1,27 +1,4 @@
-"""Segment-basierte Plasmaschneider-Simulation (Konturschnitt).
-
-  - Der Brenner steht orthogonal zum Blech und schneidet ENTLANG der
-    Kontur (klassischer Plasma-Konturschnitt, 2D-Draufsicht).
-  - Die Außen- und Lochkonturen werden automatisch in **Segmente**
-    unterteilt (Sammlung von Konturpunkten)
-  - Coverage-Prüfung: Schneiden die gewählten Segmente das Objekt
-    zu 100 % durch? Falls nicht: wieviel fehlt
-  - Beim Start ordnet der Sequencer die Segmente optimal an und der
-    LinkPlanner verbindet sie automatisch kollisionsfrei
-    (Mindestabstand ``cutter.minimum_gap`` zum Material).
-
-Module
-------
-segments.py      Konturen, Segmentierung, CutRuns, Coverage
-planning.py      Kinematik, LinkPlanner (kollisionsfreie Verbindungen),
-                 Sequencer (Held-Karp), Score
-autoplan.py      Greedy-Auswahl (Greedy Set-Cover + Pruning + Merge)
-simulation.py    Interaktive Matplotlib-Simulation + Animation; vier
-                 Auswahlverfahren: manuell (Klick), Automatic Planner (P),
-                 Surrogat (S), Brute Force (B)
-surrogate/       Brute-Force-Lehrer, Automatic Planner, Surrogat-Planer, Modell,
-                 Label-Pipeline, Benchmark, Lernkurve
-"""
+"""Segment-basierte Simulation des Plasma-Konturschnitts."""
 
 from .segments import (
     ContourLoop,
