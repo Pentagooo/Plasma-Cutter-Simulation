@@ -1,7 +1,7 @@
 """
 Geometry Processor
 ==================
-Verarbeitet eine rohe Kontur-JSON-Datei (aus dem Kontur-Editor) in zwei Schritten:
+Verarbeitet eine rohe Kontur-JSON-Datei:
 
   1. Kontur verdichten  -- Außenpunkte mit max. 5 mm Abstand
   2. Innenpunkte       -- gleichmäßiges 2.5 mm Raster innerhalb der Geometrie
@@ -14,24 +14,19 @@ Ausgabe-JSON
     {
         "points": [
             {"x": …, "y": …, "type": "outer"},
-            {"x": …, "y": …, "type": "hole"},   (falls Loch vorhanden)
+            {"x": …, "y": …, "type": "hole"},
             {"x": …, "y": …, "type": "inner"},
             ...
         ],
         "n_outer":          …,
-        "n_hole":           …,   (falls Loch vorhanden)
+        "n_hole":           …,
         "n_inner":          …,
         "contour_spacing":  5.0,
         "grid_spacing":     2.5,
         "unit":             "mm"
     }
 
-
-Was passiert:
-     Es liest eine grobe Kontur
-    (nur Eckpunkte), macht daraus eine dichte Punktwolke und legt ein
-    Raster ins Innere. Das Ergebnis beschreibt das Werkstück so fein,
-    dass die nachgelagerte Plasmaschneider-Simulation damit rechnen kann.
+Was passiert: Eckpunkte → verdichteter Querschnitt.
 """
 
 from __future__ import annotations
@@ -42,12 +37,8 @@ import math
 import sys
 from pathlib import Path
 
-# Was passiert: matplotlib bekommt ein Fenster-Backend zugewiesen, damit
-#   die Plots in einem echten Fenster erscheinen können.
-# Wie umgesetzt: Zuerst wird "TkAgg" (Standard-GUI von Python) versucht.
-#   Schlägt das fehl (kein Tk installiert), wird "Qt5Agg" probiert. Klappt
-#   auch das nicht, bleibt es beim Default-Backend (z.B. nur Datei-Ausgabe).
-#   Wichtig: matplotlib.use() muss VOR dem Import von pyplot stehen.
+# Fenster-Backend: erst TkAgg, dann Qt5Agg, sonst Standard.
+# matplotlib.use() muss vor dem Import von pyplot stehen.
 import matplotlib
 try:
     matplotlib.use("TkAgg")
@@ -69,7 +60,7 @@ BASE_DIR          = Path(__file__).parent                        # Ordner dieser
 DIR_INPUT         = BASE_DIR / "Geometrie_Konturen_ungeprüft"    # Roh-JSONs aus dem ContourEditor
 DIR_OUTPUT        = BASE_DIR / "Geometrie_Konturen_geprüft"      # Verarbeitete JSONs (Ausgabe)
 
-CONTOUR_SPACING   = 5.0    # mm – maximaler Abstand zwischen zwei Außenpunkten nach Verdichtung
+CONTOUR_SPACING   = 5.0    # mm – max. Abstand der Außenpunkte
 GRID_SPACING      = 2.5    # mm – Rasterabstand der Innenpunkte
 
 # Farben für die Visualisierung
@@ -133,10 +124,6 @@ def densify_contour(
     """Verdichtet eine Kontur: fügt Zwischenpunkte ein wo Segmente zu lang sind.
 
     Jedes Segment das länger als max_dist ist wird gleichmäßig unterteilt.
-    Dadurch wird sichergestellt dass kein zwei benachbarte Punkte weiter
-    als max_dist mm voneinander entfernt sind.
-
-
 
     Wie umgesetzt:
         Schleife über alle Punkte; jeweils das Segment zum nächsten
