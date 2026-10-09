@@ -1,0 +1,7 @@
+# Shell scripts always with LF (CRLF makes bash abort on Linux)
+*.sh text eol=lf
+*.py text
+*.md text
+*.json text
+*.npz binary
+*.joblib binary

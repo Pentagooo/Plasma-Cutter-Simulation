@@ -1,0 +1,295 @@
+"""Surrogate model: classifier for segment selection.
+
+- HistGradientBoostingClassifier (fallback: GradientBoostingClassifier)
+- predicts p(s) per segment: is s in the teacher's optimal selection?
+- the planner uses the ranking of p(s)
+
+Training via ``--train``, usage: see README.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+import joblib
+import numpy as np
+from sklearn.model_selection import GroupKFold, cross_val_predict
+from sklearn.inspection import permutation_importance
+
+try:
+    from sklearn.ensemble import HistGradientBoostingClassifier as _HGB
+    _HAS_HGB = True
+except ImportError:  # very old sklearn versions
+    from sklearn.ensemble import GradientBoostingClassifier as _HGB
+    _HAS_HGB = False
+from sklearn.ensemble import GradientBoostingClassifier
+
+try:
+    from .features import DEFAULT_MODEL_FEATURES, FEATURE_NAMES, select_features
+except ImportError:  # direct run without package context
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    from plasma_cutter.segment_simulation.surrogate.features import (
+        DEFAULT_MODEL_FEATURES, FEATURE_NAMES, select_features,
+    )
+
+
+ARTIFACTS = Path(__file__).resolve().parent / "artifacts"
+MODEL_PATH = ARTIFACTS / "surrogate_model.joblib"
+
+# Target recall of the positive class for tau calibration.
+TARGET_RECALL = 0.95
+DEFAULT_TAU = 0.5
+
+
+def _params():
+    """Import ``surrogate.params`` lazily (pulls in shapely/geometry)."""
+    try:
+        from . import params
+    except ImportError:
+        from plasma_cutter.segment_simulation.surrogate import params
+    return params
+
+
+def _make_estimator(random_state: int = 0):
+    """Builds the classifier (HGB, otherwise GradientBoosting)."""
+    if _HAS_HGB:
+        return _HGB(
+            max_iter=300, learning_rate=0.08, max_depth=None,
+            max_leaf_nodes=31, l2_regularization=1.0,
+            early_stopping=False, random_state=random_state,
+        )
+    return GradientBoostingClassifier(random_state=random_state)
+
+
+def _sample_weight(y: np.ndarray) -> np.ndarray:
+    """class_weight equivalent via sample_weight (balanced)."""
+    y = np.asarray(y)
+    w = np.ones(len(y), dtype=float)
+    n_pos = int(y.sum())
+    n_neg = len(y) - n_pos
+    if n_pos > 0 and n_neg > 0:
+        # balanced: n_samples / (2 * n_class)
+        w[y == 1] = len(y) / (2.0 * n_pos)
+        w[y == 0] = len(y) / (2.0 * n_neg)
+    return w
+
+
+def _calibrate_tau(y_true: np.ndarray, p: np.ndarray,
+                   target_recall: float = TARGET_RECALL) -> float:
+    """Largest tau with recall(positive) >= target_recall (maximum
+    precision under this constraint).
+    """
+    y_true = np.asarray(y_true).astype(int)
+    n_pos = int(y_true.sum())
+    if n_pos == 0:
+        return DEFAULT_TAU
+    order = np.unique(np.concatenate([[0.0, 1.0], p]))
+    best_tau = 0.0
+    for tau in order:
+        pred = p >= tau
+        tp = int(np.sum(pred & (y_true == 1)))
+        recall = tp / n_pos
+        if recall >= target_recall:
+            best_tau = float(tau)   # order ascending -> last valid one
+    return best_tau
+
+
+@dataclass
+class TrainReport:
+    tau: float
+    cv_recall_pos: float
+    cv_precision_pos: float
+    n_rows: int
+    n_pos: int
+    importances: list[tuple[str, float]]
+
+
+class SurrogateModel:
+    """Wrapper around the segment selection classifier."""
+
+    def __init__(self, estimator=None, tau: float = DEFAULT_TAU,
+                 feature_names: list[str] | None = None):
+        self.estimator = estimator
+        self.tau = float(tau)
+        self.feature_names = list(feature_names or DEFAULT_MODEL_FEATURES)
+
+    # ------------------------------------------------------------------
+
+    def train(self, X: np.ndarray, y: np.ndarray, groups: np.ndarray,
+              n_splits: int = 5, random_state: int = 0,
+              out_dir: Path | None = None,
+              holdout_family: int | None = None,
+              write_importances: bool = True) -> TrainReport:
+        """Training with GroupKFold by shape family.
+
+        1. out-of-fold p(s) via GroupKFold
+        2. calibrate tau (recall >= TARGET_RECALL)
+        3. refit on all data
+        4. permutation importances -> feature_importances.csv
+
+        holdout_family: remove this family beforehand (leave-one-family-out)
+        """
+        X = select_features(np.asarray(X, dtype=float), self.feature_names)
+        y = np.asarray(y, dtype=int)
+        groups = np.asarray(groups, dtype=int)
+        if out_dir is None:
+            out_dir = ARTIFACTS
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        if holdout_family is not None:
+            keep = groups != int(holdout_family)
+            X, y, groups = X[keep], y[keep], groups[keep]
+
+        n_groups = len(np.unique(groups))
+        splits = max(2, min(n_splits, n_groups))
+
+        est = _make_estimator(random_state)
+
+        # out-of-fold probabilities (for tau calibration)
+        gkf = GroupKFold(n_splits=splits)
+        sw = _sample_weight(y)
+        oof = cross_val_predict(
+            est, X, y, groups=groups, cv=gkf, method="predict_proba",
+            params={"sample_weight": sw},
+        )[:, 1]
+        self.tau = _calibrate_tau(y, oof)
+
+        pred = oof >= self.tau
+        n_pos = int(y.sum())
+        tp = int(np.sum(pred & (y == 1)))
+        fp = int(np.sum(pred & (y == 0)))
+        cv_recall = tp / n_pos if n_pos else 0.0
+        cv_prec = tp / (tp + fp) if (tp + fp) else 0.0
+
+        # refit on all data
+        self.estimator = _make_estimator(random_state)
+        self.estimator.fit(X, y, sample_weight=sw)
+
+        # permutation importances (off in the learning curve, otherwise the
+        # main CSV would be overwritten)
+        importances: list[tuple[str, float]] = []
+        if write_importances:
+            try:
+                pi = permutation_importance(
+                    self.estimator, X, y, n_repeats=5,
+                    random_state=random_state, scoring="average_precision")
+                imp = pi.importances_mean
+                order = np.argsort(imp)[::-1]
+                importances = [(self.feature_names[i], float(imp[i]))
+                               for i in order]
+                with open(out_dir / "feature_importances.csv", "w",
+                          newline="", encoding="utf-8") as f:
+                    w = csv.writer(f)
+                    w.writerow(["feature", "importance"])
+                    for name, val in importances:
+                        w.writerow([name, f"{val:.6f}"])
+            except Exception as exc:  # pragma: no cover
+                print(f"WARN: Feature-Importances nicht berechenbar: {exc}")
+
+        return TrainReport(
+            tau=self.tau, cv_recall_pos=cv_recall, cv_precision_pos=cv_prec,
+            n_rows=len(y), n_pos=n_pos, importances=importances,
+        )
+
+    # ------------------------------------------------------------------
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """p(s) per segment (probability of 'in the optimum')."""
+        X = np.asarray(X, dtype=float)
+        if X.shape[0] == 0:
+            return np.zeros(0)
+        return self.estimator.predict_proba(
+            select_features(X, self.feature_names))[:, 1]
+
+    def select(self, X: np.ndarray, tau: float | None = None) -> np.ndarray:
+        """Boolean selection mask S = {s : p(s) >= tau}."""
+        t = self.tau if tau is None else float(tau)
+        return self.predict_proba(X) >= t
+
+
+# ---------------------------------------------------------------------------
+# Training / loading with provenance stamp
+# ---------------------------------------------------------------------------
+
+def train_model(out_dir: Path | None = None, random_state: int = 0,
+                feature_names: list[str] | None = None) -> dict:
+    """Trains on ``<out_dir>/dataset.npz``, writes
+    ``surrogate_model.joblib`` + ``model_meta.json`` with stamp
+    (version, hashes, k_max, seed, row count, CV metrics).
+    """
+    out_dir = Path(out_dir) if out_dir else ARTIFACTS
+    meta_path = out_dir / "dataset_meta.json"
+    if not meta_path.exists():
+        raise SystemExit(
+            f"FEHLER: {meta_path} fehlt -- zuerst 'dataset --n ...' laufen lassen.")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    P = _params()
+    found = meta.get("stamp") or {}
+    # expected: physics/catalog from the CODE, segmentation from the dataset
+    expected = P.label_params(
+        seg_divisor=float(meta.get("seg_divisor", P.SEG_DIVISOR_DEFAULT)),
+        seg_min_spacings=float(meta.get("seg_min_spacings",
+                                        P.SEG_MIN_SPACINGS_DEFAULT)))
+    P.check_stamp(found, expected, "dataset_meta.json", strict_seg=True)
+    d = np.load(out_dir / "dataset.npz", allow_pickle=True)
+    model = SurrogateModel(feature_names=feature_names)
+    rep = model.train(d["X"], d["y"], d["groups"], out_dir=out_dir,
+                      random_state=random_state)
+    stamp = {**P.stamp(expected), "pricing": meta.get("pricing", "exact"),
+             "k_max": meta.get("k_max"), "seed": meta.get("seed"),
+             "n_instances": meta.get("n_instances_used"), "n_rows": rep.n_rows,
+             "feature_names": model.feature_names,
+             "tau": rep.tau, "cv_recall_pos": rep.cv_recall_pos,
+             "cv_precision_pos": rep.cv_precision_pos}
+    joblib.dump({"estimator": model.estimator, "tau": model.tau,
+                 "feature_names": model.feature_names, **stamp},
+                out_dir / MODEL_PATH.name)
+    with open(out_dir / "model_meta.json", "w", encoding="utf-8") as f:
+        json.dump({**stamp, "importances": rep.importances}, f, indent=2)
+    print(f"Modell: {rep.n_rows} Zeilen, {rep.n_pos} positiv, "
+          f"tau={rep.tau:.3f}, CV Recall {rep.cv_recall_pos:.3f} / "
+          f"Precision {rep.cv_precision_pos:.3f} -> {out_dir / MODEL_PATH.name}")
+    print("Top-Features:", ", ".join(
+        f"{n}={v:.3f}" for n, v in rep.importances[:6]))
+    return stamp
+
+
+def load_model(path: Path | None = None) -> SurrogateModel:
+    """Loads the model: abort on different LABEL_VERSION/physics or
+    missing stamp, warning on different segmentation/catalog.
+    """
+    path = Path(path) if path else MODEL_PATH
+    data = joblib.load(path)
+    P = _params()
+    P.check_stamp(data, P.label_params(), f"Modell {path.name}",
+                  strict_seg=False)
+    return SurrogateModel(estimator=data["estimator"], tau=data["tau"],
+                          feature_names=data["feature_names"])
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Surrogat-Modell trainieren.")
+    ap.add_argument("--train", action="store_true",
+                    help="Training auf <out>/dataset.npz starten")
+    ap.add_argument("--features", type=str, default=None,
+                    help="Komma-Liste der Modellmerkmale (Default: "
+                         "DEFAULT_MODEL_FEATURES)")
+    ap.add_argument("--out", type=str, default=None,
+                    help="Ordner mit dataset.npz (Default: artifacts/)")
+    args = ap.parse_args()
+    if args.train:
+        train_model(Path(args.out) if args.out else None,
+                    feature_names=(args.features.split(",")
+                                   if args.features else None))
+    else:
+        ap.print_help()
+
+
+if __name__ == "__main__":
+    main()
