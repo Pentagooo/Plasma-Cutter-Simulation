@@ -102,14 +102,12 @@ class PointGrid:
         self.point_spacing = float(point_spacing)
         self.contour_spacing: float = float(contour_spacing) if contour_spacing else point_spacing * 2.0
 
-        # Lazy-Cache für GridPoint-Objekte (nur bei Bedarf erstellt)
+        # GridPoint-Cache, wird bei Bedarf gefüllt
         self._grid_point_cache: list[GridPoint | None] = [None] * len(self._coords)
 
     @property
     def points(self) -> list[GridPoint]:
-        """Kompatibilitäts-Property: Gibt alle Punkte als GridPoint-Liste zurück.
-        Achtung: Erzeugt Tausende Python-Objekte!
-        """
+        """Alle Punkte als GridPoint-Liste (langsam bei vielen Punkten)."""
         return [self._get_grid_point(i) for i in range(len(self._coords))]
 
     def _get_grid_point(self, i: int) -> GridPoint:
