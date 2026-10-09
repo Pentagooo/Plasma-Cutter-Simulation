@@ -1,11 +1,9 @@
 """Label-Pipeline: Trainingsdaten mit dem Brute-Force-Lehrer.
 
-- Instanzen aus ``instances`` (Katalog, stabil über (seed, idx))
+- Instanzen aus ``instances`` (Katalog)
 - Label je Segment: 1, wenn es in der optimalen Auswahl des Lehrers liegt
 - Cache: eine .npz je Instanz in ``<out>/labels/``, Dateiname mit
   ``LABEL_VERSION`` + ``params_hash``; ein Neustart labelt nur die fehlenden
-- Prozess-Pool: bei Zeitbudget oder Stopp-Datei keine neuen Instanzen,
-  laufende rechnen zu Ende
 - reale Testgeometrien nur mit ``--include-real`` (sonst Testsatz)
 
 Aufrufe siehe README, Optionen per ``--help``.
