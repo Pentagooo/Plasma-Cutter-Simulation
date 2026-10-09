@@ -56,7 +56,7 @@ DP-Split-Ketten und reproduziert das gemeldete `T`.
 | `dataset.py` | Label-Pipeline: Cache `artifacts/labels/<key>.npz`, multiprocessing, Zeitbudget, `dataset.npz` |
 | `benchmark.py`, `learning_curve.py` | Auswertung auf ungesehenen Instanzen (Testsätze seed 7 und seed 11) |
 | `tests/` | Merkmale, DP-Split, Coverage-Garantie (Zufalls-/Null-/Eins-Modell), Fallback, Lehrer, Dominanz (`slow`), Modell-Guard |
-| `artifacts/` | im Repo nur das produktive Modell (`surrogate_model.joblib`, `model_meta.json`); Läufe unter `runs/` bleiben lokal |
+| `artifacts/` | im Repo nur das produktive Modell (`surrogate_model.joblib`); Läufe unter `runs/` bleiben lokal |
 
 **außerhalb**: `geometry/point_grid.py` (`PointGrid`, JSON), `geometry/geometry_processor.py` (CLI Rohkontur → geprüfte Geometrie), `cutter/cutter.py` (`Cutter`), `cutter/assumptions.py` (`BladeLengthModel`, `PierceTimeModel`, `CuttingAssumptions`).
 

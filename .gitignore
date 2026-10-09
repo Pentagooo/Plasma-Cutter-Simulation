@@ -22,5 +22,4 @@ Thumbs.db
 
 /segment_simulation/surrogate/artifacts/*
 !/segment_simulation/surrogate/artifacts/surrogate_model.joblib
-!/segment_simulation/surrogate/artifacts/model_meta.json
 /segment_simulation/surrogate/artifacts-*/

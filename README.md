@@ -185,7 +185,7 @@ produktive Modell; alles andere ist groß und per `.gitignore` lokal.
 
 | Ort | Inhalt | im Repo |
 |---|---|---|
-| `surrogate_model.joblib`, `model_meta.json` | das produktive Modell (Taste S im Simulator), Kopie aus `runs/main_f2/`; Stempel und Trainingsdaten stehen in `model_meta.json`. Trainiert auf einem älteren Katalogstand (`SHAPE_VERSION` im Code inzwischen erhöht); beim Laden kommt deshalb nur die `params_hash`-Warnung | ja |
+| `surrogate_model.joblib` | das produktive Modell (Taste S im Simulator), Kopie aus `runs/main_f2/`; der Stempel steckt in der Datei selbst. Trainiert auf einem älteren Katalogstand (`SHAPE_VERSION` im Code inzwischen erhöht); beim Laden kommt deshalb nur die `params_hash`-Warnung | ja |
 | `runs/<name>/` | ein Label-/Trainingslauf: `labels/` (je Instanz ein `.npz` mit Merkmalen, Label, `T`, Lehrerzeit, Stempel), `dataset.npz`, `dataset_meta.json`, Modell, `benchmark*.{csv,md}`, `learning_curve*.{csv,md}` | nein |
 | `archive_L1/` | Stand vor dem Parameterstempel (alte `LABEL_VERSION`; lädt nicht mehr) | nein |
 
