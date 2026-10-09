@@ -2,28 +2,29 @@
 
 Bahnplaner für einen robotergeführten Plasmaschneider. Aus einer
 Bauteilgeometrie (Außenkontur + Löcher, als Punktgitter) berechnet das
-System einen **vollständigen, zeitminimalen und kollisionsfreien
-Schneidplan**: Welche Stücke der Kontur werden geschnitten, in welcher
+System ein **vollständiges, zeitminimales und kollisionsfreies
+Schneidprimitiv**: Welche Stücke der Kontur werden geschnitten, in welcher
 Reihenfolge und Richtung, mit welcher Geschwindigkeit?
 
 ## Modell
 
-- TCP fährt auf einem Offset-Pfad mit konstantem Mindestabstand zum Material
-- Plasmastrahl ragt Richtung Material, seine Länge sinkt linear mit der
-  Geschwindigkeit: `L(v) = L0 − slope · v`
-- **Coverage** = überstrichene Querschnittsfläche (alle vom Strahl erfassten
-  Gitterpunkte), nicht nur die Kontur
-- **Ziel**: volle Coverage in minimaler Ausführungszeit `T`
+- TCP hält während des Schneidens einen konstanten Mindestabstand `d_min`
+  zum Material
+- Länge des Plasmastrahls sinkt linear mit der Geschwindigkeit:
+  `L(v) = L0 − slope · v`
+- **Coverage** = Anteil der Gitterpunkte, die der Strahl erfasst
+- **Ziel**: volle Coverage in minimaler Ausführungszeit `T`, innerhalb des
+  Planungsbudgets
 
 | Größe | Bedeutung | Code |
 |---|---|---|
 | Klingenlänge `L(v)` | Reichweite des Strahls; schneller = kürzer | `cutter/assumptions.py` (`BladeLengthModel`), `Cutter.blade_length(v)` |
-| Effektive Tiefe | `L(v) − clearance`; tiefere Punkte sind unerreichbar | `planning.RunKinematics.effective_depth` |
+| Effektive Tiefe | `L(v) − d_min` | `planning.RunKinematics.effective_depth` |
 | Swept Area | vom Strahl überstrichene Fläche eines Schnitts | `RunKinematics.attach` (Shapely-Polygon je `CutRun`) |
 | Coverage | Anteil der Gitterpunkte in den Swept Areas | `segments.compute_grid_coverage` |
-| Pierce-Zeit | Pauschale je Zündung, entfällt bei nahtlosem Anschluss | `Cutter.pierce_time()`, `PierceTimeModel` |
-| Geschwindigkeitsregel | schnellste coverage-erhaltende Geschwindigkeit je Block, `t_switch` je Wechsel | `surrogate/runutils.py` (`split_group_for_speed`, `build_speed_chains`) |
-| `T` | Schnitt + Eilgang + Pierce + Geschwindigkeitswechsel | `runutils.build_plan_with_speeds` → `SpeedPlan.total_time` |
+| Pierce-Zeit | Pauschale je Zündung; entfällt, wenn direkt davor das benachbarte Segment geschnitten wurde | `Cutter.pierce_time()`, `PierceTimeModel` |
+| Geschwindigkeitsregel | jeder Abschnitt eines Schnitts so schnell, wie der Strahl die tiefste zu schneidende Stelle noch erreicht; jeder Geschwindigkeitswechsel kostet `t_switch` | `surrogate/runutils.py` (`split_group_for_speed`, `build_speed_chains`) |
+| `T` | `T_cut + T_rapid + T_pierce + T_switch` | `runutils.build_plan_with_speeds` → `SpeedPlan.total_time` |
 
 ## Pipeline
 
@@ -44,25 +45,17 @@ PointGrid
 
 | Verfahren | Auswahl | Einstieg |
 |---|---|---|
-| **Manuell** | Bediener klickt Start-/Endknoten in die Zeichnung | Simulator (Klick) |
+| **Manuell** | Start- und Endknoten jedes Schnitts per Mausklick wählen | Simulator (Klick) |
 | **Automatic Planner** | Greedy Set Cover + Pruning des `AutoPlanner` | Taste P, `surrogate.planner.greedy_plus_plan` |
 | **Surrogat** | gelerntes Modell ordnet die Segmente nach p(s) „liegt im Optimum“; Greedy Set Cover in dieser Reihenfolge auf exakten Masken, Pruning, Verify, Fallback auf Greedy; die Coverage hängt nie am Modell | Taste S, `surrogate.planner.surrogate_plan` |
 | **Brute Force** | alle 2^k Segment-Teilmengen, jede vollständige Abdeckung exakt bewertet = Optimum (bis `K_MAX_DEFAULT` Segmente); erzeugt auch die Trainingslabels | Taste B, `surrogate.teacher.exhaustive_plan` |
 
-- gleiche Pipeline ab der Auswahl → `T_BruteForce ≤ T_AutomaticPlanner` bei
-  gleicher Coverage (`tests/test_teacher_dominates.py`)
-- Schalter **Geschwindigkeitsregel** (Taste V): AN = DP-Split je Kette bei
-  allen drei Planern, AUS = alles bei Basisgeschwindigkeit
-- fairer Vergleich manuell vs. Planer: Geschwindigkeitsregel AUS (manuelle
-  Runs bekommen keine Geschwindigkeitsblöcke)
-
 ## Schnellstart
 
 - Python ≥ 3.10 (getestet mit 3.14)
-- der Ordner **muss** `plasma_cutter` heißen (interne Importe
-  `plasma_cutter.…`); Kommandos laufen aus dem **Elternordner**
-- das mitgelieferte Modell ist mit scikit-learn 1.9 gespeichert; mit einer
-  anderen Version warnt scikit-learn beim Laden
+- Ordner muss `plasma_cutter` heißen, Befehle aus dem Elternordner starten
+- Modell mit scikit-learn 1.9 gespeichert; die `params_hash`-Warnung beim
+  Laden ist erwartet (Modell stammt von einem älteren Katalogstand)
 
 ```bash
 git clone https://igm-git.igm.rwth-aachen.de/sherec/auto_cutting_primitives.git plasma_cutter
@@ -142,81 +135,58 @@ python -m pytest plasma_cutter/segment_simulation/surrogate/tests -q -m "not slo
 python -m pytest plasma_cutter/segment_simulation/surrogate/tests -q
 ```
 
-**Kurzcheck im Simulator** nach Änderungen an Physik oder Planung:
-
-- `kontur.json` und `Test2.json`: P, S und B nacheinander auswählen, je mit
-  Enter planen
-- erwartet: volle Coverage bei allen drei, Brute Force nie langsamer als der
-  Automatic Planner, Enter reproduziert das gemeldete `T`
-- `test_lochjson.json`: die vollständig umschlossene Lochkontur ist ohne
-  Z-Hub nicht erreichbar; Surrogat und Brute Force decken den erreichbaren
-  Rest ab, statt abzubrechen
-
 ## Projektstruktur
 
 ```
 plasma_cutter/
 ├── segment_simulation/
-│   ├── segments.py            ContourLoop, Segmentierung (Segment, SegmentedContour), CutRun, Coverage
-│   ├── planning.py            RunKinematics (Swept Area), LinkPlanner (Sichtbarkeitsgraph + Dijkstra),
-│   │                          Sequencer (Held-Karp), CutPlan, compute_score
-│   ├── autoplan.py            AutoPlanner: Greedy Set Cover + Pruning + Merge, auto_plan(grid)
-│   ├── simulation.py          interaktiver Simulator (manuell / P / S / B, Animation), make_default_cutter
+│   ├── segments.py            Kontur in Segmente zerlegen, Schnitte beschreiben, Coverage zählen
+│   ├── planning.py            Strahl und überstrichene Fläche (Swept Area) je Schnitt,
+│   │                          kollisionsfreie Verfahrwege, beste Reihenfolge der Schnitte
+│   ├── autoplan.py            Automatic Planner: wählt Segmente, bis alles abgedeckt ist
+│   ├── simulation.py          interaktiver Simulator mit Animation; Physik-Konstanten des Schneiders
 │   └── surrogate/
-│       ├── features.py        Merkmale je Segment (nur Kontur + Distanzen); Modell nutzt DEFAULT_MODEL_FEATURES
-│       ├── params.py          Parameterstempel (LABEL_VERSION, phys_hash/params_hash)
-│       ├── instances.py       Katalog (SHAPE_VERSION): Normprofile (Flach, Winkel, T, U, HP, H),
-│       │                      Anbauteile (attached), Schweißbaugruppe (assembly); Testgeometrien
-│       ├── teacher.py         Brute-Force-Lehrer (exhaustive_plan, K_MAX_DEFAULT)
-│       ├── planner.py         greedy_plus_plan, surrogate_plan
-│       ├── runutils.py        gemeinsame Planungsstufen (Merge, DP-Split, Ketten, Planbau)
-│       ├── model.py           SurrogateModel (HistGradientBoosting, GroupKFold nach Familie), train_model, load_model
-│       ├── dataset.py         Label-Pipeline (Cache je Instanz, parallel, resumebar)
-│       ├── benchmark.py       Automatic Planner / Surrogat / Brute Force auf ungesehenen Instanzen
-│       ├── learning_curve.py  Lernkurve
-│       ├── tests/             Merkmale, Stempel, DP-Split, Merge, Coverage-Garantie, Lehrer,
-│       │                      Dominanz (slow), Modell-Guard
-│       └── artifacts/         Produktivmodell (im Repo); runs/<name>/ je Label-/Trainingslauf (nur lokal)
-├── cutter/                    Physikmodell: Cutter, BladeLengthModel L(v), PierceTimeModel, CuttingAssumptions
-├── geometry/                  PointGrid (JSON), geometry_processor.py (Kontur-Editor-JSON -> geprüfte Geometrie)
-│   ├── Geometrie_Konturen_ungeprüft/   Rohkonturen aus dem Kontur-Editor (Eingabe)
-│   └── Geometrie_Konturen_geprüft/     Testgeometrien (Ausgabe, von Simulator und Katalog genutzt)
-├── requirements.txt
+│       ├── planner.py         Surrogat-Planer und Automatic Planner mit Geschwindigkeitsregel
+│       ├── teacher.py         Brute Force: probiert alle Segmentkombinationen, liefert das Optimum
+│       ├── model.py           gelerntes Modell trainieren und laden
+│       ├── features.py        Kennzahlen je Segment, aus denen das Modell lernt
+│       ├── dataset.py         Trainingsdaten erzeugen (Brute Force auf vielen Bauteilen)
+│       ├── instances.py       Bauteilkatalog fürs Training: Normprofile, Anbauteile, Schweißbaugruppen
+│       ├── params.py          Stempel: erkennt, ob Modell, Daten und Physik zusammenpassen
+│       ├── runutils.py        gemeinsame Schritte aller Planer: Segmente zu Schnitten verbinden,
+│       │                      Geschwindigkeiten, Reihenfolge, Gesamtzeit
+│       ├── benchmark.py       Planer auf neuen Bauteilen vergleichen
+│       ├── learning_curve.py  Modellgüte über der Menge an Trainingsdaten
+│       ├── tests/             automatische Tests
+│       └── artifacts/         trainiertes Modell (im Repo); Trainingsläufe nur lokal
+├── cutter/                    Physikmodell des Schneiders: Strahllänge L(v), Zündzeit
+├── geometry/                  Punktgitter laden, Rohkonturen aufbereiten (geometry_processor.py)
+│   ├── Geometrie_Konturen_ungeprüft/   Rohkonturen aus dem Kontur-Editor
+│   └── Geometrie_Konturen_geprüft/     aufbereitete Testgeometrien
+├── requirements.txt           benötigte Python-Pakete
 └── README.md
 ```
 
 ## Parameter und Stempel
 
-Alle label-relevanten Werte stehen an einer Stelle:
+Werte, die Trainingsdaten und Modell bestimmen:
 
-- Physik des Schneiders: Konstantenblock in `segment_simulation/simulation.py`
-  (`v_cut`, `v_max`, `L0`, `blade_slope`, `minimum_gap`, `rapid_speed`,
-  `t_switch`, Pierce)
-- Kerf und Segmentierungsregel: `surrogate/params.py`
-- Abtastung: `planning.TCP_SAMPLE_STEP`
-- Punktdichte und Katalog: `surrogate/instances.py`
+- Physik des Schneiders (`v_cut`, `v_max`, `L0`, `blade_slope`,
+  `minimum_gap` = `d_min`, `rapid_speed`, `t_switch`, Pierce):
+  Konstantenblock in `segment_simulation/simulation.py`
+- Kerf und Segmentierung: `surrogate/params.py`
+- Abtastung des TCP-Pfads: `planning.TCP_SAMPLE_STEP`
+- Punktdichte und Bauteilkatalog: `surrogate/instances.py`
 
-`params.label_params()` sammelt sie; zwei Hashes davon stehen in jedem
-Label-Dateinamen, in `dataset_meta.json` und im Modell:
+Der Stempel (`python -m plasma_cutter.segment_simulation.surrogate.params`)
+steckt in jedem Label und im Modell und erkennt Änderungen:
 
-- `phys_hash` (Physik, Kerf, Abtastung, Eckwinkel) muss zwischen Labels,
-  Modell und Code übereinstimmen, sonst brechen `train_model`/`load_model` ab
-- `params_hash` (zusätzlich Segmentierung, Punktdichte, `SHAPE_VERSION`)
-  unterscheidet Datensätze; beim Laden eines Modells nur eine Warnung
+- andere Physik (`phys_hash`): Training und Laden des Modells brechen ab →
+  neu labeln und trainieren
+- andere Segmentierung oder anderer Katalog (`params_hash`): nur eine Warnung
 
-**Jede Änderung eines dieser Werte macht alle Labels und das Modell
-ungültig** (neu labeln). Neue Katalogfamilien in `instances.py` nur
-anhängen (`SHAPE_ORDER`, `FAMILIES`) und `SHAPE_VERSION` erhöhen.
-
-## Artefakte
-
-`segment_simulation/surrogate/artifacts/`: im Repo liegt nur das produktive
-Modell, alles andere bleibt per `.gitignore` lokal.
-
-| Ort | Inhalt | im Repo |
-|---|---|---|
-| `surrogate_model.joblib` | produktives Modell (Taste S), Stempel in der Datei; trainiert auf einem älteren Katalogstand (`SHAPE_VERSION` inzwischen erhöht), daher beim Laden nur die `params_hash`-Warnung | ja |
-| `runs/<name>/` | ein Label-/Trainingslauf: `labels/` (je Instanz ein `.npz` mit Merkmalen, Label, `T`, Lehrerzeit, Stempel), `dataset.npz`, `dataset_meta.json`, Modell, `benchmark*.{csv,md}`, `learning_curve*.{csv,md}` | nein |
+Neue Bauteilfamilien in `instances.py` nur anhängen und `SHAPE_VERSION`
+erhöhen.
 
 ## Geometrien
 
