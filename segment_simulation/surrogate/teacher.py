@@ -9,8 +9,6 @@
 - Ergebnis: exaktes Optimum über Auswahl x Reihenfolge x Richtung x
   Geschwindigkeitsblöcke bei fester Segmentierung
 - Aufwand 2^k: mehr als ``k_max`` verbindbare Segmente -> ``TeacherSkipped``
-- Aufzählung blockweise (untere 16 Bit als Tabelle), Speicher wächst nicht
-  mit 2^k
 
 Verwendet für die Trainingslabels (``dataset``), das Optimum im Benchmark
 und Taste B im Simulator.
