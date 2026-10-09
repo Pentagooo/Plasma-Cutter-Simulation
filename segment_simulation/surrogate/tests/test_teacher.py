@@ -1,9 +1,9 @@
-"""Lehrer-Test: Brute-Force-T <= Greedy-T auf einer kleinen Geometrie.
+"""Lehrer-Test: Brute Force <= Greedy auf einer kleinen Geometrie.
 
-Der Brute-Force-Lehrer optimiert {Auswahl x Reihenfolge x Richtung} + die
-Geschwindigkeitsregel; er darf daher NIE schlechter sein als der
-klassische Greedy-Planer (der dieselbe Coverage bei fixem v_cut liefert).
+Der Lehrer optimiert Auswahl x Reihenfolge x Richtung + Geschwindigkeitsregel,
+darf also nie schlechter sein als der klassische Greedy-Planer (v_cut).
 """
+
 from __future__ import annotations
 
 from plasma_cutter.segment_simulation.segments import SegmentedContour
@@ -30,15 +30,15 @@ def test_teacher_not_worse_than_greedy():
     assert tr.total_time <= greedy.plan.total_time + 1e-6, (
         f"Lehrer T={tr.total_time:.3f} > Greedy T={greedy.plan.total_time:.3f}")
     assert tr.selected, "Lehrer hat kein Subset gewaehlt"
-    # Alle vollständigen Abdeckungen wurden bewertet; die Auswahl ist
-    # eine davon und keine ist schneller.
+    # alle Teilmengen aufgezählt, die Auswahl ist eine der Abdeckungen
     assert tr.n_covers >= 1
     assert tr.n_subsets == (1 << tr.n_feasible) - 1
 
 
 def test_teacher_speed_rule_off_not_faster():
-    """Mit v_max = v_cut (Geschwindigkeitsregel AUS) kann das Optimum nur langsamer
-    oder gleich sein: der Entscheidungsraum ist eine Teilmenge."""
+    """Geschwindigkeitsregel aus (v_max = v_cut) = Teilraum -> Optimum nur
+    gleich oder langsamer.
+    """
     grid = small_flat_bar()
     on = exhaustive_plan(grid, k_max=15, keep_covers=False, speed_rule=True)
     off = exhaustive_plan(grid, k_max=15, keep_covers=False, speed_rule=False)

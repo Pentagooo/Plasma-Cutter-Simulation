@@ -1,20 +1,20 @@
 """Surrogat-Planer und Automatic Planner.
 
-``surrogate_plan(grid, model)``:
+``surrogate_plan(grid, model)``
+  1. Merkmale -> Modell p(s) -> Segmente nach p(s) sortiert
+  2. Greedy Set Cover in dieser Reihenfolge auf exakten Singleton-Masken
+     (lazy, nur berührte Segmente)
+  3. optional Pruning redundanter Segmente
+  4. ein Planbau (DP-Split + Held-Karp), ein exakter Verify
+  5. fehlen erreichbare Punkte -> klassischer Fallback (Greedy-Auswahl)
 
-    Features -> Modell p(s) -> Greedy Set Cover in p(s)-Reihenfolge auf
-    EXAKTEN Singleton-Masken (lazy, nur berührte Segmente) -> optional
-    Pruning redundanter Segmente -> EIN Planbau (DP-Split + Held-Karp)
-    -> EIN exakter Verify -> klassischer Fallback (Greedy-Auswahl).
+  Das Modell bestimmt nur die Reihenfolge; die Coverage hängt nie am Modell.
 
-Das Modell bestimmt nur die REIHENFOLGE. Masken, Planbau, Verify und
-Fallback sind exakt bzw. klassisch, die Coverage-Garantie hängt nie am
-Modell: selbst ein Zufallsmodell liefert am Ende einen gültigen Plan.
-
-``greedy_plus_plan(grid)``: die klassische Greedy-Set-Cover-Auswahl des
-``AutoPlanner``, aber mit DERSELBEN Geschwindigkeitsstufe wie
-Surrogat und Lehrer (DP-Split je Kette) -- die faire Vergleichsbasis.
+``greedy_plus_plan(grid)``
+  Greedy-Auswahl des ``AutoPlanner`` mit derselben Geschwindigkeitsstufe
+  (DP-Split) wie Surrogat und Lehrer -> fairer Vergleich.
 """
+
 from __future__ import annotations
 
 import time
@@ -67,20 +67,18 @@ except ImportError:  # Direktstart ohne Paket-Kontext
 class SurrogatePlanResult:
     """Ergebnis von ``surrogate_plan``.
 
-    Attributes
-    ----------
-    runs          : geordnete CutRuns des finalen Plans
-    plan          : SpeedPlan (Zeitbilanz mit variablen Schnittgeschw.)
+    runs          : geordnete CutRuns des Plans
+    plan          : SpeedPlan (Zeitbilanz, variable Geschwindigkeiten)
     selected      : gewählte seg_ids (nach Pruning bzw. des Fallbacks)
-    coverage      : exakte Querschnitts-Coverage [0..1]
-    T             : Ausführungszeit des Plans [s]
-    t_plan        : Wall-Clock der GESAMTEN Pipeline [s]
-    n_pruned      : Anzahl exakt weggekürzter (redundanter) Segmente
-    used_fallback : True, wenn auf die Greedy-Auswahl zurückgefallen wurde
-    n_unreachable : ehrlich unerreichbare Gitterpunkte (auch für Greedy)
-    n_candidates  : Anzahl Primitiv-Segmente
-    n_selected    : Anzahl gewählter Segmente
-    timings       : Stufen-Timings [s]
+    coverage      : exakte Coverage [0..1]
+    T             : Ausführungszeit [s]
+    t_plan        : Planungszeit gesamt [s]
+    n_pruned      : weggekürzte (redundante) Segmente
+    used_fallback : True = Greedy-Auswahl übernommen
+    n_unreachable : unerreichbare Gitterpunkte (auch für Greedy)
+    n_candidates  : Primitiv-Segmente
+    n_selected    : gewählte Segmente
+    timings       : Stufenzeiten [s]
     """
     runs: list = field(default_factory=list)
     plan: SpeedPlan = field(default_factory=SpeedPlan)
@@ -95,7 +93,8 @@ class SurrogatePlanResult:
     n_selected: int = 0
     timings: dict = field(default_factory=dict)
 
-    def summary(self) -> str:       #Übersicht alle Lautfzeiten in ms
+    def summary(self) -> str:
+        """Kurzübersicht inkl. Stufenzeiten [ms]."""
         tg = self.timings
         stages = " ".join(f"{k}={tg.get(k, 0) * 1e3:.1f}ms"
                           for k in ("features", "predict", "masks", "prune",
@@ -115,10 +114,11 @@ class SurrogatePlanResult:
 # ---------------------------------------------------------------------------
 
 def _fallback_plan(grid: PointGrid, contour, material, cutter, phys, kerf):
-    """Klassische Greedy-Auswahl (``AutoPlanner``: Greedy + Pruning +
-    Merge), robust gegen nicht verbindbare Touren, sequenziert bei
-    Basisgeschwindigkeit. Liefert (runs, mask, SpeedPlan, selected).
-    Dies ist zugleich die Referenz für die ehrliche Erreichbarkeit.
+    """Klassische Greedy-Auswahl des ``AutoPlanner`` bei v_cut.
+
+    - robust gegen nicht verbindbare Runs
+    - zugleich Referenz für die ehrliche Erreichbarkeit
+    - Rückgabe: (runs, mask, SpeedPlan, selected)
     """
     blade = cutter.blade_length(cutter.cutting_speed)
     kin = RunKinematics(material, clearance=phys.gap,
@@ -131,37 +131,35 @@ def _fallback_plan(grid: PointGrid, contour, material, cutter, phys, kerf):
         selected = sorted(ap._prune(ap._greedy()))
         runs = [r for r in ap._merge_to_runs(selected)
                 if r.is_feasible and r.swept_polygon is not None]
-        run_speed = {r.run_id: cutter.cutting_speed for r in runs} #  Weist Jedem Schnitt die Standard-Geschwindigkeit zu
+        run_speed = {r.run_id: cutter.cutting_speed for r in runs}  # alle v_cut
         plan = build_plan_with_speeds(seq, runs, run_speed, cutter,
                                       drop_unlinkable=True)
     except Exception:
-        # Auch die klassische Auswahl kann an ungültiger Geometrie
-        # scheitern -> leere Referenz (kein Crash).
+        # ungültige Geometrie -> leere Referenz statt Crash
         plan = SpeedPlan()
-    kept = plan.ordered_runs  #Welche runs geschnitten werden können
-    mask = compute_grid_coverage(grid, kept).mask #Welche Punkte geschnitten werden können
+    kept = plan.ordered_runs  # verbindbare Runs
+    mask = compute_grid_coverage(grid, kept).mask  # erreichbare Punkte
     return kept, mask, plan, selected
 
 
 # ---------------------------------------------------------------------------
-# Automatic Planner : klassische Auswahl MIT Geschwindigkeitsregel (fairer Vergleich)
+# Automatic Planner: Greedy-Auswahl + Geschwindigkeitsregel
 # ---------------------------------------------------------------------------
 
 def greedy_plus_plan(grid: PointGrid, cutter=None, kerf: float = KERF,
                      contour: SegmentedContour | None = None):
-    """Greedy-Set-Cover-Auswahl des ``AutoPlanner``, aber mit gleicher
-    Geschwindigkeitsstufe wie Surrogat/Lehrer: Dient als Baseline.
+    """Greedy-Auswahl des ``AutoPlanner`` + gemeinsame DP-Split-Stufe.
 
-    Returns
-    -------
-    dict mit T (Ausführungszeit), coverage, n_runs, t_plan (Wall-Clock
-    der gesamten Planung [s]) und timings (Stufen-Timings [s]:
-    candidates = Kandidaten/Swept-Areas des AutoPlanner, select =
-    Greedy-Set-Cover + Pruning, sequence = Held-Karp + LinkPlanner,
-    speedup = DP-Split der Geschwindigkeitsregel, verify = exakte Coverage). Bei
-    Crash der Auswahl: T=None (nicht in den Vergleich aufnehmen).
-    ``contour``: vorgegebene Segmentierung (Benchmark mit feiner
-    Segmentierung); sonst ``SegmentedContour.from_grid``.
+    Rückgabe: dict mit
+      T         Ausführungszeit [s] (None bei Crash der Auswahl)
+      coverage  exakte Coverage
+      n_runs    Anzahl Runs
+      t_plan    Planungszeit gesamt [s]
+      timings   Stufen [s]: candidates (Swept Areas), select (Greedy +
+                Pruning), sequence (Held-Karp + LinkPlanner), speedup
+                (DP-Split), verify (exakte Coverage)
+
+    contour: vorgegebene Segmentierung, sonst ``from_grid``.
     """
     t_start = time.perf_counter()
     timings: dict[str, float] = {"candidates": 0.0, "select": 0.0,
@@ -184,7 +182,7 @@ def greedy_plus_plan(grid: PointGrid, cutter=None, kerf: float = KERF,
     if material is None:
         return _fail()
 
-    coords = np.asarray(grid.coords, dtype=float) #NumPy-Array
+    coords = np.asarray(grid.coords, dtype=float)
 
     # Klassische Greedy-Auswahl + Basisplan als Referenz
     blade = cutter.blade_length(cutter.cutting_speed)
@@ -211,7 +209,7 @@ def greedy_plus_plan(grid: PointGrid, cutter=None, kerf: float = KERF,
     if not base_plan.ordered_runs:
         return _fail()
     t0 = time.perf_counter()
-    base_mask = compute_grid_coverage(grid, base_plan.ordered_runs).mask #Pro Punkt Boolean
+    base_mask = compute_grid_coverage(grid, base_plan.ordered_runs).mask
     timings["verify"] += time.perf_counter() - t0
 
     # Gemeinsame DP-Split-Stufe (identisch zu Lehrer und Surrogat)
@@ -229,8 +227,9 @@ def greedy_plus_plan(grid: PointGrid, cutter=None, kerf: float = KERF,
             t0 = time.perf_counter()
             mask = compute_grid_coverage(grid, plan.ordered_runs).mask
             timings["verify"] += time.perf_counter() - t0
+            # keine Punkte verloren und nicht langsamer als der Basisplan
             if (bool(np.all(base_mask <= mask))
-                    and plan.total_time <= base_plan.total_time + 1e-9): #Check ob Punkte verloren + Zeit schlechter
+                    and plan.total_time <= base_plan.total_time + 1e-9):
                 return {"T": plan.total_time, "coverage": float(mask.mean()),
                         "n_runs": len(plan.ordered_runs),
                         "t_plan": time.perf_counter() - t_start,
@@ -256,15 +255,13 @@ def surrogate_plan(
     contour: SegmentedContour | None = None,
     speed_rule: bool = True,
 ) -> SurrogatePlanResult:
-    """Surrogat-Planer
+    """Surrogat-Planer (Ablauf siehe Modulkopf).
 
-    ``prune=False`` lässt die Auswahl des Greedy Set Cover unverändert;
-    ``proba_override`` ersetzt die Modellausgabe (Ablation: Zufall/
-    Heuristik). ``contour`` ist die Segmentierung, auf die sich die
-    seg_ids beziehen (Simulator: dessen Kontur). ``speed_rule=False``
-    klemmt v_max auf v_cut für Planbau und Fallback (Simulator mit
-    Geschwindigkeitsregel-Schalter AUS); die Merkmale werden weiterhin mit den
-    Originalparametern berechnet, mit denen das Modell trainiert wurde.
+    prune          : False -> Auswahl des Greedy Set Cover unverändert
+    proba_override : ersetzt die Modellausgabe (Ablation)
+    contour        : Segmentierung der seg_ids (Simulator: dessen Kontur)
+    speed_rule     : False -> v_max = v_cut für Planbau und Fallback;
+                     Merkmale weiter mit den Trainingsparametern
     """
     t_start = time.perf_counter()
     timings = {"features": 0.0, "predict": 0.0, "masks": 0.0, "prune": 0.0,
@@ -280,7 +277,7 @@ def surrogate_plan(
     coords = np.asarray(grid.coords, dtype=float)
     n_pts = len(coords)
     result = SurrogatePlanResult(n_candidates=n_seg, timings=timings)
-    
+
     if n_seg == 0 or material is None:
         result.t_plan = time.perf_counter() - t_start
         return result
@@ -295,11 +292,11 @@ def surrogate_plan(
     order = np.argsort(-proba)
     timings["predict"] = time.perf_counter() - t0
 
-    # B: Greedy Set Cover
+    # B: Greedy Set Cover in p(s)-Reihenfolge, Masken lazy
     t0 = time.perf_counter()
     seg_run, seg_mask = {}, {}
     covered = np.zeros(n_pts, dtype=bool)
-    selected: set[int] = set() #IDs der Segmente die gewählt werden
+    selected: set[int] = set()
     for s in order:
         if covered.all():
             break
@@ -308,13 +305,13 @@ def surrogate_plan(
                                   phys_plan.v_cut, kerf, coords)
         seg_run.update(r1)
         seg_mask.update(m1)
-        if bool((seg_mask[s] & ~covered).any()): #bringt das neue segmente Punkte
+        if bool((seg_mask[s] & ~covered).any()):  # neue Punkte?
             selected.add(s)
             covered |= seg_mask[s]
     timings["masks"] = time.perf_counter() - t0
 
-    # C: Pruning (optional): Segment raus, wenn jeder seiner Punkte noch
-    # von einem anderen gewählten Segment gedeckt ist; unsicherste zuerst
+    # C: Pruning: Segment raus, wenn alle seine Punkte doppelt gedeckt sind;
+    #    kleinstes p(s) zuerst
     t0 = time.perf_counter()
     n_pruned = 0
     if prune and len(selected) > 1:
@@ -330,7 +327,7 @@ def surrogate_plan(
     timings["prune"] = time.perf_counter() - t0
     result.n_pruned = n_pruned
 
-    # D: EIN Planbau (Singleton-Reuse) + EIN Sequencing
+    # D: ein Planbau (Singleton-Runs wiederverwendet) + Sequencing
     seq = ExactSequencer(cutter, contour,
                          LinkPlanner(material, clearance=phys_plan.gap))
     t0 = time.perf_counter()
@@ -344,12 +341,12 @@ def surrogate_plan(
                                   t_switch=phys_plan.t_switch)
     timings["sequence"] = time.perf_counter() - t0
 
-    # E: EIN exakter Verify
+    # E: exakter Verify
     t0 = time.perf_counter()
     mask = compute_grid_coverage(grid, plan.ordered_runs).mask
     timings["verify"] = time.perf_counter() - t0
 
-    # F:  Fallback, wenn  erreichbare Punkte fehlen
+    # F: Fallback, wenn erreichbare Punkte fehlen
     used_fallback = False
     n_unreachable = 0
     if not mask.all():

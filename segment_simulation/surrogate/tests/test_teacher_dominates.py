@@ -1,16 +1,12 @@
-"""Dominanz-Test: T_Lehrer <= T_AutomaticPlanner <= T_Greedy (konsistente Zielfunktion).
+"""Dominanz: T_Lehrer <= T_AutomaticPlanner <= T_Greedy.
 
-Die Geschwindigkeitszuweisung (Geschwindigkeitsregel + t_switch, DP-Split je Kette)
-ist Teil des GEMEINSAMEN Entscheidungsraums aller Planer. Der
-Brute-Force-Lehrer bewertet jede vollständige Abdeckung mit genau
-dieser Pipeline und muss deshalb jeden klassischen Planer dominieren;
-Automatic Planner (Greedy-Auswahl + DP-Split) darf nie langsamer sein als Greedy
-(Greedy-Auswahl bei Basisgeschwindigkeit).
-
-Toleranz: kleine Epsilons für Gleitkomma; Vergleich nur bei identischer
-Coverage (sonst vergleichen wir verschiedene Aufgaben). Instanzen über
-``K_MAX`` Segmenten werden übersprungen (Lehrerzeit wächst ~2^k).
+- alle Planer teilen die Geschwindigkeitsstufe (DP-Split + t_switch), der
+  Lehrer muss daher jeden dominieren
+- Automatic Planner (Greedy + DP-Split) nie langsamer als Greedy (v_cut)
+- Vergleich nur bei gleicher Coverage; Instanzen über ``K_MAX`` Segmenten
+  werden übersprungen
 """
+
 from __future__ import annotations
 
 import math
@@ -28,7 +24,7 @@ from plasma_cutter.segment_simulation.surrogate.teacher import (
 from ._helpers import real_geometries, small_flat_bar
 
 EPS = 1e-6
-K_MAX = 13     # ~1-2 min für den ganzen Test; größere Instanzen skippen
+K_MAX = 13     # größere Instanzen überspringen (Laufzeit)
 
 
 def _cases():

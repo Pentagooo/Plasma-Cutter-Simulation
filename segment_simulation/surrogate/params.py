@@ -1,24 +1,19 @@
-"""Label-relevante Parameter an EINER Stelle: Stempel für Labels, Datensatz
-und Modell.
+"""Parameterstempel für Labels, Datensatz und Modell.
 
-Der Brute-Force-Lehrer bewertet jede Abdeckung mit der Planungspipeline.
-Alles, was diese Bewertung beeinflusst -- Physik des Schneiders, Kerf,
-Abtastung der Swept Area, Punktdichte, Segmentierungsregel, Katalogversion --
-bestimmt die Labels. ``LabelParams`` sammelt diese Werte aus den Modulen, in
-denen sie definiert sind (``simulation.make_default_cutter`` über
-``instances.default_cutter``, ``planning.TCP_SAMPLE_STEP``, ``instances``,
-``segments``); zwei Hashes davon wandern in jeden Label-Dateinamen, in
-``dataset_meta.json`` und ins Modell:
+``LabelParams`` sammelt alles, was die Bewertung des Lehrers beeinflusst
+(Physik, Kerf, Abtastung, Punktdichte, Segmentierung, Katalog), aus den
+Modulen, in denen es definiert ist. Zwei Hashes davon stehen in jedem
+Label-Dateinamen, in ``dataset_meta.json`` und im Modell:
 
-  * ``phys_hash``   -- Physik + Kerf + Abtastung + Eckwinkel: MUSS zwischen
-                      Labels, Modell und laufendem Code übereinstimmen.
-  * ``params_hash`` -- zusätzlich Segmentierung, Punktdichte, Katalog:
-                      unterscheidet Datensätze (z.B. feine Segmentierung);
-                      beim Laden eines Modells nur eine Warnung.
+  phys_hash   : Physik + Kerf + Abtastung + Eckwinkel; muss bei Labels,
+                Modell und Code übereinstimmen
+  params_hash : zusätzlich Segmentierung, Punktdichte, Katalog; beim Laden
+                eines Modells nur eine Warnung
 
-Ändert sich die Pipeline selbst (Zeitmodell, Bewertung), ``LABEL_VERSION``
-erhöhen; Parameteränderungen erkennt der Hash von allein.
+Parameteränderungen erkennt der Hash; Änderungen an der Pipeline selbst
+(Zeitmodell, Bewertung) -> ``LABEL_VERSION`` erhöhen.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -45,17 +40,16 @@ except ImportError:  # Direktstart ohne Paket-Kontext
         CONTOUR_SPACING, GRID_SPACING, SHAPE_VERSION, default_cutter,
     )
 
-# Version der Label-PIPELINE (Zeitmodell, Bewertung, Merkmale). Erhöhen,
-# wenn sich der Code so ändert, dass dieselben Parameter andere Labels
-# oder Merkmale ergeben. v2: Parameterstempel eingeführt (17.09.2026);
-# v3: verschachtelte TCP-Abtastung, Merge verliert nie Coverage (17.09.2026).
+# Version der Label-Pipeline: erhöhen, wenn gleiche Parameter andere Labels
+# oder Merkmale ergeben (v2: Parameterstempel, v3: verschachtelte
+# TCP-Abtastung)
 LABEL_VERSION = 3
 
-# Schnittfugenbreite [mm] -- vorher ein impliziter Default in Lehrer/Planer.
+# Schnittfugenbreite [mm]
 KERF = 3.0
 
-# Segmentierungsregel (segments.SegmentedContour): Ziellänge =
-# Umfang / SEG_DIVISOR, Untergrenze SEG_MIN_SPACINGS * Punktabstand.
+# Segmentierung: Ziellänge = Umfang / SEG_DIVISOR,
+# mindestens SEG_MIN_SPACINGS * Punktabstand
 SEG_DIVISOR_DEFAULT = 12.0
 SEG_MIN_SPACINGS_DEFAULT = 4.0
 CORNER_ANGLE_DEG = 30.0
@@ -99,8 +93,9 @@ class LabelParams:
 def label_params(seg_divisor: float = SEG_DIVISOR_DEFAULT,
                  seg_min_spacings: float = SEG_MIN_SPACINGS_DEFAULT,
                  cutter=None) -> LabelParams:
-    """Sammelt die aktuellen Werte aus dem Code (Default-Cutter des
-    Simulators, Planungs-, Katalog- und Segmentierungskonstanten)."""
+    """Aktuelle Werte aus dem Code (Default-Cutter, Planungs-, Katalog-
+    und Segmentierungskonstanten).
+    """
     if cutter is None:
         cutter = default_cutter()
     phys = phys_from_cutter(cutter)
@@ -122,8 +117,9 @@ def label_params(seg_divisor: float = SEG_DIVISOR_DEFAULT,
 
 
 def _canon(v):
-    """Floats auf 9 Nachkommastellen runden: Gleitkomma-Rauschen (z.B.
-    27.4999985 aus dem Klingenmodell) darf den Hash nicht kippen."""
+    """Floats auf 9 Stellen runden: Gleitkomma-Rauschen ändert den Hash
+    nicht.
+    """
     if isinstance(v, float):
         v = round(v, 9)
         return 0.0 if v == 0 else v
@@ -169,12 +165,10 @@ def check_stamp(found: dict, expected: LabelParams, what: str,
                 strict_seg: bool = True) -> None:
     """Vergleicht einen gespeicherten Stempel mit ``expected``.
 
-    Bricht hart ab (SystemExit) bei fehlendem Stempel, anderer
-    ``label_version`` oder anderem ``phys_hash`` -- mit Liste der
-    abweichenden Felder. Weicht nur ``params_hash`` ab (Segmentierung,
-    Punktdichte, Katalog), ist das bei ``strict_seg=True`` ebenfalls ein
-    Fehler, sonst nur eine Warnung (ein auf feiner Segmentierung
-    trainiertes Modell darf im Simulator mit Standardsegmentierung laufen).
+    - fehlender Stempel, andere label_version oder phys_hash -> SystemExit
+      mit Liste der abweichenden Felder
+    - nur params_hash anders: Fehler bei ``strict_seg``, sonst Warnung
+      (z.B. fein segmentiertes Modell im Simulator)
     """
     found = found or {}
     lv = found.get("label_version", -1)

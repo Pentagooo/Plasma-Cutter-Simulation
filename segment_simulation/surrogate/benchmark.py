@@ -1,14 +1,11 @@
-"""Benchmark: Automatic Planner / Surrogat (mit und ohne Pruning) / Brute Force.
+"""Benchmark: Automatic Planner, Surrogat (mit/ohne Pruning), Brute Force.
 
-Ungesehene Instanzen (seed 7: n Katalog + reale Testgeometrien). Je
-Instanz: Ausführungszeit T (deterministisch aus dem Zeitmodell),
-Coverage, Fallback, Planzeit (Best-of-``reps`` nach Warm-up). Das Optimum
-kommt vom Brute-Force-Lehrer -- entweder direkt (sequentiell, bis
-``k_max``) oder aus einem vorher parallel gelabelten Ordner
-(``--opt-labels DIR``, erzeugt mit ``dataset --seed 7 --out DIR``).
-
-Alle drei Planer bekommen dieselbe Segmentierung (``--seg-divisor``,
-``--seg-min-spacings``) und denselben Kerf aus ``params``.
+- ungesehene Instanzen: seed 7, n Katalog + reale Testgeometrien
+- je Instanz: Ausführungszeit T, Coverage, Fallback, Planzeit
+  (Best-of-``reps`` nach Warm-up)
+- Optimum vom Lehrer: direkt (sequentiell, bis ``k_max``) oder aus einem
+  Label-Ordner (``--opt-labels DIR``, erzeugt mit ``dataset --seed 7``)
+- alle Planer mit gleicher Segmentierung und gleichem Kerf
 
 Ausgabe: ``<out>/benchmark.csv`` und ``benchmark.md``.
 
@@ -16,6 +13,7 @@ CLI (aus dem Elternordner von plasma_cutter):
     python -m plasma_cutter.segment_simulation.surrogate.benchmark \\
         --n 30 --seed 7 --reps 3 [--model PFAD] [--out DIR] [--opt-labels DIR]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -87,10 +85,10 @@ def run_benchmark(model, n_instances: int = 30, seed: int = 7, reps: int = 3,
                   seg_divisor: float = SEG_DIVISOR_DEFAULT,
                   seg_min_spacings: float = SEG_MIN_SPACINGS_DEFAULT,
                   opt_labels_dir: Path | None = None) -> list[dict]:
-    """``with_teacher=False`` lässt das Optimum aus (Lernkurve: T_opt wird
-    dann aus einem gecachten Lauf übernommen); ``opt_labels_dir`` nimmt
-    das Optimum aus einem Label-Ordner statt den Lehrer zu rufen; ``stem``
-    ist der Dateiname der CSV/MD-Ausgabe."""
+    """with_teacher   : False -> ohne Optimum (Lernkurve: T_opt aus Cache)
+    opt_labels_dir : Optimum aus Label-Ordner statt Lehrer-Aufruf
+    stem           : Dateiname der CSV/MD-Ausgabe
+    """
     out_dir = Path(out_dir) if out_dir else ARTIFACTS
     out_dir.mkdir(parents=True, exist_ok=True)
     p = label_params(seg_divisor, seg_min_spacings)

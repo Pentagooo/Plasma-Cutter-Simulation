@@ -1,22 +1,21 @@
-"""Lernkurve: Was bringt wie viel Trainingsdaten?
+"""Lernkurve: Modellgüte über der Zahl der Trainingsinstanzen.
 
-Trainiert Modelle auf den ersten N Instanzen des Datensatzes
-(Katalogreihenfolge, Familien gleichmäßig gemischt) und misst jedes auf
-einem festen Testsatz ungesehener Instanzen (seed 7: n Katalog + reale).
-Das Optimum des Testsatzes kommt aus einem Label-Ordner (``--opt-labels``,
-parallel erzeugt mit ``dataset --seed 7``) oder wird EINMAL sequentiell mit
-dem Brute-Force-Lehrer gerechnet und gecacht
-(``optimum_seed<s>_n<n>_P<hash>.csv``); Instanzen über ``k_max``
-Segmenten bekommen kein Optimum und zählen nicht in die Lücke.
+- Modelle auf den ersten N Instanzen des Datensatzes (Katalogreihenfolge,
+  Familien gemischt)
+- Test auf festem Satz ungesehener Instanzen (seed 7: n Katalog + reale)
+- Optimum aus Label-Ordner (``--opt-labels``) oder einmal mit dem Lehrer
+  gerechnet und gecacht (``optimum_seed<s>_n<n>_P<hash>.csv``); Instanzen
+  über ``k_max`` zählen nicht in die Lücke
 
-Ausgabe: ``<out>/learning_curve.csv`` / ``.md`` (+ je Modell eine
-Benchmark-CSV unter ``<out>/learning_curve_runs/``).
+Ausgabe: ``<out>/learning_curve.csv`` / ``.md`` (+ Benchmark-CSV je Modell
+unter ``<out>/learning_curve_runs/``).
 
 CLI (aus dem Elternordner von plasma_cutter):
     python -m plasma_cutter.segment_simulation.surrogate.learning_curve \\
         --dataset .../runs/main --n-list 100,250,500,1000,2000,4000 --n-eval 60 \\
         [--opt-labels .../runs/main_eval/labels] [--seg-divisor 24 --seg-min-spacings 3]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,7 +26,7 @@ import os
 import time
 from pathlib import Path
 
-# Training nicht auf allen Kernen (die Skripte setzen den Wert explizit)
+# Training nicht auf allen Kernen (per Umgebungsvariable überschreibbar)
 os.environ.setdefault("OMP_NUM_THREADS", "6")
 
 import joblib
@@ -71,8 +70,9 @@ def _rows_of_first_instances(meta: dict, n: int) -> int:
 def optimum_table(n_eval: int, seed: int, out_dir: Path, p, k_max: int = 18,
                   opt_labels_dir: Path | None = None,
                   verbose: bool = True) -> dict:
-    """T_opt je Testinstanz: aus ``opt_labels_dir`` oder gecacht als CSV
-    (sequentieller Lehrer; Instanzen über ``k_max`` bekommen kein Optimum)."""
+    """T_opt je Testinstanz: aus ``opt_labels_dir`` oder als CSV gecacht
+    (sequentieller Lehrer, ohne Optimum über ``k_max``).
+    """
     if opt_labels_dir is not None:
         t_opt = {}
         for grid in generate_instances(n_eval, seed):

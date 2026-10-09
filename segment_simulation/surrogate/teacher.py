@@ -1,27 +1,21 @@
-"""Brute-Force-Lehrer: reine Aufzählung aller Segment-Teilmengen.
+"""Brute-Force-Lehrer: Aufzählung aller Segment-Teilmengen.
 
-Verfahren, in drei Sätzen:
+1. Singleton-Runs: jedes Segment einmal bei v_cut -> exakte Punktmaske
+2. alle Teilmengen der verbindbaren Segmente aufzählen, nur vollständige
+   Abdeckungen behalten
+3. jede vollständige Abdeckung exakt bewerten (DP-Split, Held-Karp,
+   LinkPlanner), die schnellste gewinnt
 
-  1. Jedes Segment wird EINMAL als Singleton-Run bei v_cut angeheftet ->
-     exakte Punktmaske a_s.
-  2. ALLE Teilmengen S der (verbindbaren) Segmente werden aufgezählt;
-     Teilmengen mit a(S) != M (Vereinigung der Masken deckt nicht alles)
-     werden verworfen.
-  3. Jede vollständige Abdeckung wird mit der Planungspipeline EXAKT
-     bewertet (Blöcke angeheftet, Reihenfolge + Richtung: Held-Karp;
-     Geschwindigkeiten: DP-Split je Kette) und die zeitminimale behalten.
+- Ergebnis: exaktes Optimum über Auswahl x Reihenfolge x Richtung x
+  Geschwindigkeitsblöcke bei fester Segmentierung
+- Aufwand 2^k: mehr als ``k_max`` verbindbare Segmente -> ``TeacherSkipped``
+- Aufzählung blockweise (untere 16 Bit als Tabelle), Speicher wächst nicht
+  mit 2^k
 
-Das Ergebnis ist das exakte Optimum im Raum {Auswahl x Reihenfolge x
-Richtung x Geschwindigkeitsblöcke} bei fester Segmentierung. Keine
-Schranken, kein Branch-and-Bound: einfachste Beschreibung, teuerste
-Rechnung (~15-50 ms je Abdeckung, 2^k Teilmengen). Instanzen mit mehr als
-``k_max`` verbindbaren Segmenten werfen ``TeacherSkipped`` (Katalog: 98 %
-<= 16 Segmente). Die Aufzählung läuft blockweise (untere 16 Bit
-vorberechnet), damit der Speicher nicht mit 2^k wächst.
-
-Derselbe Lehrer erzeugt die Trainingslabels (``dataset``), das Optimum im
-Benchmark und die Brute-Force-Auswahl im Simulator (Taste B).
+Verwendet für die Trainingslabels (``dataset``), das Optimum im Benchmark
+und Taste B im Simulator.
 """
+
 from __future__ import annotations
 
 import time
@@ -62,12 +56,10 @@ except ImportError:  # Direktstart ohne Paket-Kontext
         build_speed_chains, linkable_segments, make_group_run,
     )
 
-# LABEL_VERSION und KERF leben in ``params`` (Stempel für Labels/Modell)
-# und werden hier nur re-exportiert.
+# LABEL_VERSION, KERF: aus ``params`` re-exportiert
 __all__ = ["LABEL_VERSION", "KERF", "K_MAX_DEFAULT", "TeacherSkipped",
            "ExhaustiveResult", "iter_complete_covers", "exhaustive_plan"]
-# Mit exakter Bewertung sind 18 Segmente die praktische Grenze
-# (~20 min je Instanz; die Zeit wächst ~x1.9 je weiterem Segment).
+# praktische Obergrenze, die Rechenzeit wächst exponentiell mit k
 K_MAX_DEFAULT = 18
 _LOW_BITS = 16
 
@@ -89,8 +81,7 @@ class ExhaustiveResult:
     n_unlinkable: int = 0          # verworfen: nicht verbindbar
     plan_time: float = 0.0         # Wall-Clock gesamt [s]
     plan: object = None            # SpeedPlan des Siegers
-    # Je bewerteter vollständiger Abdeckung (seg_ids, T) in
-    # Aufzählreihenfolge; nur mit ``keep_covers`` (für Abbildungen)
+    # (seg_ids, T) je bewerteter Abdeckung, nur mit ``keep_covers``
     covers: list = field(default_factory=list)
     timings: dict = field(default_factory=dict)
 
@@ -101,8 +92,9 @@ def _pack_mask(mask: np.ndarray) -> int:
 
 
 def _cover_table(mask_int: list[int]) -> list[int]:
-    """Vereinigungsmaske jeder Teilmenge (Index = Bitmaske) per DP über
-    das niedrigste gesetzte Bit."""
+    """Vereinigungsmaske jeder Teilmenge (Index = Bitmaske), DP über das
+    niedrigste gesetzte Bit.
+    """
     n = len(mask_int)
     cov = [0] * (1 << n)
     for b in range(1, 1 << n):
@@ -114,9 +106,8 @@ def _cover_table(mask_int: list[int]) -> list[int]:
 def iter_complete_covers(mask_int: list[int], full_int: int):
     """Bitmasken aller Teilmengen mit vollständiger Abdeckung, aufsteigend.
 
-    Blockweise: die unteren ``_LOW_BITS`` Segmente werden als Tabelle
-    vorberechnet, die oberen Bits laufen außen -- 2^k Vergleiche, aber nur
-    2^16 gespeicherte Masken.
+    Untere ``_LOW_BITS`` Segmente als Tabelle, obere Bits in der äußeren
+    Schleife (2^16 gespeicherte Masken statt 2^k).
     """
     n = len(mask_int)
     nl = min(n, _LOW_BITS)
@@ -143,15 +134,12 @@ def exhaustive_plan(
     keep_covers: bool = True,
     speed_rule: bool = True,
 ) -> ExhaustiveResult:
-    """Exaktes Optimum im Raum {Auswahl x Reihenfolge x Richtung x
-    Geschwindigkeitszuweisung} bei fixer Segmentierung -- durch
-    vollständige Aufzählung aller Segment-Teilmengen.
+    """Exaktes Optimum durch vollständige Aufzählung der Segment-Teilmengen.
 
-    ``contour``: die Segmentierung, auf die sich die seg_ids beziehen
-    (Simulator: dessen eigene Kontur); sonst ``SegmentedContour.from_grid``.
-    ``speed_rule=False`` klemmt v_max auf v_cut: alle Blöcke fahren die
-    Basisgeschwindigkeit, die Zielfunktion ist die reine Basis-Zeit
-    (Simulator mit Geschwindigkeitsregel-Schalter AUS).
+    contour     : Segmentierung der seg_ids (Simulator: dessen Kontur),
+                  sonst ``SegmentedContour.from_grid``
+    speed_rule  : False -> v_max = v_cut, nur Basisgeschwindigkeit
+    keep_covers : alle bewerteten Abdeckungen in ``covers`` behalten
     """
     t0 = time.perf_counter()
     if cutter is None:

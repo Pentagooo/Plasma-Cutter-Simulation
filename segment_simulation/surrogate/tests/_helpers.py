@@ -39,7 +39,7 @@ class OneModel:
 
 
 def small_flat_bar() -> PointGrid:
-    """Kleiner Flachstahl (wenige Segmente) für den Lehrer-Test."""
+    """Kleiner Flachstahl (wenige Segmente)."""
     return grid_from_polygon(box(-40.0, -6.0, 40.0, 6.0))
 
 

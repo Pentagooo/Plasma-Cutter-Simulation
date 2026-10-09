@@ -1,8 +1,7 @@
-"""Pytest-Konfiguration: Repo-Wurzel in den Importpfad legen.
-
-So laufen die Tests unabhängig vom Arbeitsverzeichnis (``import
-plasma_cutter...`` funktioniert immer).
+"""Pytest-Konfiguration: Repo-Wurzel in den Importpfad (Tests laufen aus
+jedem Arbeitsverzeichnis).
 """
+
 import sys
 from pathlib import Path
 

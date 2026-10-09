@@ -1,29 +1,16 @@
-from __future__ import annotations
+"""Gemeinsame Planungsstufen für Lehrer, Automatic Planner und Surrogat.
 
-"""Geteilte Planungs-Hilfen für Lehrer (dataset) und Surrogat (planner).
-
-Additive Bausteine auf Basis der bestehenden ``planning``-Komponenten.
-Kernpunkte:
-
-  * ``ExactSequencer``: Alias auf den ``Sequencer``, der die Reihenfolge
-    seit dem Entfernen der NN+2-opt-Heuristik ohnehin immer exakt
-    (Held-Karp) löst -- macht den Anspruch an den Aufrufstellen sichtbar.
-  * Verschmelzen zusammenhängender Primitiv-Segmente zu CutRuns, Anheften
-    der Kinematik bei einer PRO RUN zugewiesenen Geschwindigkeit v (die
-    Klinge L(v) und damit die Swept Area hängen von v ab).
-  * ``split_group_for_speed`` + ``build_speed_chains`` + ``ChainedRun``:
-    die GEMEINSAME DP-Split-Stufe aller Planer (Lehrer/Automatic Planner/Surrogat).
-    Eine zusammenhängende Kette darf in Blöcke mit eigener
-    Geschwindigkeit zerfallen (Aufschlag ``t_switch`` je Wechsel);
-    der Sequencer sieht EINEN Makro-Knoten je Kette.
-  * ``build_plan_with_speeds``: baut einen Ausführungsplan mit
-    variablen Schnittgeschwindigkeiten (inkl. Ketten-Rollout und
-    t_switch-Bilanz) und ist robust gegen ``LinkInfeasibleError``
-    (nicht verbindbare Runs, z.B. vollständig umschlossene
-    Lochkonturen, werden verworfen statt zu crashen).
-
-Diese Datei ändert die bestehenden Module NICHT; sie nutzt sie nur.
+- Runs bauen: zusammenhängende Segmente -> CutRun, Kinematik bei
+  zugewiesener Geschwindigkeit v (Klinge L(v) -> Swept Area)
+- DP-Split (``split_group_for_speed``, ``build_speed_chains``,
+  ``ChainedRun``): eine Kette zerfällt in Blöcke mit eigener
+  Geschwindigkeit, Aufschlag ``t_switch`` je Wechsel; der Sequencer sieht
+  einen Knoten je Kette
+- ``build_plan_with_speeds``: Plan mit variablen Geschwindigkeiten; nicht
+  verbindbare Runs werden verworfen statt zu crashen
 """
+
+from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
@@ -33,7 +20,7 @@ import shapely
 from scipy.spatial import cKDTree
 
 try:
-    from ..segments import SegmentedContour, CutRun, compute_grid_coverage
+    from ..segments import SegmentedContour, CutRun
     from ..planning import (
         RunKinematics, LinkPlanner, Sequencer, LinkInfeasibleError, CHAIN_TOL,
     )
@@ -44,7 +31,7 @@ except ImportError:  # Direktstart ohne Paket-Kontext
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
     from plasma_cutter.segment_simulation.segments import (
-        SegmentedContour, CutRun, compute_grid_coverage,
+        SegmentedContour, CutRun,
     )
     from plasma_cutter.segment_simulation.planning import (
         RunKinematics, LinkPlanner, Sequencer, LinkInfeasibleError, CHAIN_TOL,
@@ -56,13 +43,10 @@ except ImportError:  # Direktstart ohne Paket-Kontext
 
 
 # ---------------------------------------------------------------------------
-# Exakter Sequencer (offline immer Held-Karp)
+# Exakter Sequencer
 # ---------------------------------------------------------------------------
 
-# Der ``Sequencer`` löst die Reihenfolge seit dem Entfernen der
-# NN+2-opt-Heuristik ohnehin IMMER exakt (Held-Karp). ``ExactSequencer``
-# bleibt als sprechender Alias erhalten, damit der explizite Anspruch
-# "Lehrer/Surrogat sequenzieren exakt" an den Aufrufstellen sichtbar ist.
+# Alias: macht "exakt sequenziert" (Held-Karp) an den Aufrufstellen sichtbar
 ExactSequencer = Sequencer
 
 
@@ -84,10 +68,8 @@ def group_contiguous(
 ) -> list[tuple[int, list[int]]]:
     """Zerlegt die gewählten Segmente in zyklisch zusammenhängende Gruppen.
 
-    Returns
-    -------
-    Liste von (loop_id, [seg_id, ...]) -- jede Gruppe wird zu genau einem
-    CutRun (eine Zündung).
+    Rückgabe [(loop_id, [seg_id, ...])], je Gruppe ein CutRun (eine
+    Zündung).
     """
     order_by_loop = loop_segment_order(contour)
     groups: list[tuple[int, list[int]]] = []
@@ -148,12 +130,10 @@ def attach_at_speed(
     v: float,
     kerf: float,
 ) -> CutRun:
-    """Heftet die Kinematik bei Schnittgeschwindigkeit ``v`` an (in-place).
+    """Kinematik bei Geschwindigkeit ``v`` anheften (in-place).
 
-    Die Klingenlänge L(v) und damit die Swept Area hängen von v ab.
-    Robust: schlägt der Swept-Area-Aufbau bei (durch Augmentation)
-    ungültiger Geometrie fehl (GEOS-TopologyException), wird der Run als
-    nicht ausführbar markiert statt zu crashen.
+    Swept-Area-Fehler (GEOS bei ungültiger Geometrie) -> Run als nicht
+    ausführbar markiert statt Crash.
     """
     try:
         kin = RunKinematics(material, clearance=phys.gap,
@@ -180,10 +160,9 @@ def build_singletons(
     kerf: float,
     coords: np.ndarray,
 ) -> tuple[dict, dict]:
-    """Baut je Segment einen Singleton-Run bei Geschwindigkeit ``v`` und
-    seine boolesche Abdeckungsmaske.
+    """Singleton-Run je Segment bei ``v`` + boolesche Punktmaske.
 
-    Returns (seg_run, seg_mask) -- Dicts seg_id -> CutRun bzw. -> bool-Maske.
+    Rückgabe (seg_run, seg_mask): seg_id -> CutRun bzw. Maske.
     """
     seg_run: dict[int, CutRun] = {}
     seg_mask: dict[int, np.ndarray] = {}
@@ -225,23 +204,14 @@ def merge_covering_runs(
     coords: np.ndarray,
     check_partial: bool = False,
 ) -> list[CutRun]:
-    """Verschmilzt zusammenhängende Segmente, fällt aber auf Einzel-
-    segmente zurück, wenn der Merge Coverage verlieren würde.
+    """Verschmilzt zusammenhängende Segmente; verliert der Merge Coverage,
+    werden die Einzelsegmente genommen.
 
-    Spiegelt ``AutoPlanner._runs_for_group``: der VOLLKREIS-Merge (ein Run
-    einmal um einen kompletten Loop) überstreicht durch die Ringpfad-
-    Schließung teils WENIGER als die Summe der Einzelsegmente. Nur für
-    solche Voll-Loop-Gruppen wird die Coverage exakt geprüft (und nötigen-
-    falls auf Einzelsegmente zurückgefallen); Teilbogen-Merges sind meist
-    gutartig und werden ohne Zusatzaufwand übernommen -- so bleibt der
-    schnelle Pfad schnell. Alle Runs sind frisch angeheftet.
-
-    ``check_partial=True`` prüft zusätzlich auch jede TEILBOGEN-Gruppe
-    exakt (wie der Brute-Force-Lehrer ``teacher.exhaustive_plan``):
-    einzelne Teilbogen-Merges können sehr wohl Coverage verlieren. Damit
-    reproduziert die Materialisierung einer Lehrer-Auswahl dessen Runs
-    (und Coverage) exakt -- auf Kosten je eines Singleton-Aufbaus pro
-    Gruppe.
+    - Voll-Loop-Merge: immer exakt geprüft (Ringschluss überstreicht
+      teils weniger als die Einzelsegmente)
+    - Teilbogen-Merge: nur mit ``check_partial`` geprüft (wie der Lehrer,
+      reproduziert dessen Runs; kostet einen Singleton-Aufbau je Gruppe)
+    - alle Runs frisch angeheftet
     """
     order_by_loop = loop_segment_order(contour)
     runs: list[CutRun] = []
@@ -258,7 +228,7 @@ def merge_covering_runs(
             merged_mask = shapely.contains_xy(
                 merged.swept_polygon, coords[:, 0], coords[:, 1])
             if not bool(np.all(target <= merged_mask)):
-                for r in singles:  # Voll-Loop-Merge verliert Coverage
+                for r in singles:  # Merge verliert Coverage
                     if r.is_feasible and r.swept_polygon is not None:
                         r.run_id = rid
                         runs.append(r)
@@ -291,13 +261,10 @@ def linkable_segments(
     cutter: Cutter,
     kerf: float,
 ) -> set[int]:
-    """Segmente, deren Loop per Eilgang mit der Außenkontur verbindbar ist.
+    """Segmente, deren Loop per Eilgang von der Außenkontur erreichbar ist.
 
-    Die Außenkontur ist der Eintritt (immer erreichbar). Eine Lochkontur
-    ist nur erreichbar, wenn ein kollisionsfreier Verfahrweg von der
-    Außenkontur existiert; vollständig umschlossene Löcher (kein
-    Überflug) werden ausgeschlossen. So bleibt das Coverage-Ziel des
-    Lehrers erreichbar.
+    Vollständig umschlossene Löcher fallen raus, damit das
+    Coverage-Ziel des Lehrers erreichbar bleibt.
     """
     feas = set(feasible)
     order_by_loop = loop_segment_order(contour)
@@ -334,25 +301,6 @@ def linkable_segments(
 
 
 # ---------------------------------------------------------------------------
-# Geschwindigkeitszuweisung je Run
-# ---------------------------------------------------------------------------
-
-def run_speed_from_depths(
-    group: list[int],
-    seg_depth_max: np.ndarray,
-    phys: PhysParams,
-) -> float:
-    """Geschwindigkeit einer Segmentgruppe = langsamster (tiefster) Member.
-
-    Konservativ: der Run wird so langsam gefahren, dass die Klinge die
-    tiefste benötigte Tiefe aller Member erreicht -> keine Tiefen-Löcher
-    innerhalb der zugewiesenen Punkte.
-    """
-    d = float(np.max(seg_depth_max[group])) if len(group) else 0.0
-    return phys.speed_for_depth(d)
-
-
-# ---------------------------------------------------------------------------
 # Coverage-erhaltende Geschwindigkeits-Anhebung
 # ---------------------------------------------------------------------------
 
@@ -365,22 +313,15 @@ def fastest_safe_speed(
     v_lo: float,
     v_hi: float,
 ) -> float:
-    """Schnellste Geschwindigkeit, die die BASIS-Abdeckung des Runs hält.
+    """Schnellste Geschwindigkeit, die die Basis-Abdeckung des Runs hält.
 
-    Der Run muss beim Aufruf bei ``v_lo`` (Basisgeschwindigkeit) angeheftet
-    sein. Statt einer teuren Binärsuche (viele Swept-Area-Neubauten) wird
-    die Zielgeschwindigkeit ANALYTISCH aus der benötigten Tiefe bestimmt:
-    ``d_r`` = größter Abstand eines vom Run abgedeckten Gitterpunkts zur
-    Run-Kontur (billige cKDTree-Distanz). Die Klinge muss d_r erreichen, also
+    - Run muss bei ``v_lo`` angeheftet sein
+    - analytisch statt Binärsuche: d_r = größter Abstand eines
+      abgedeckten Punkts zur Run-Kontur, v_r = speed_for_depth(d_r)
+    - einmal bei v_r anheften und exakt prüfen, sonst zurück auf v_lo
+      -> Plan wird nur schneller, Coverage bleibt
 
-        v_r = speed_for_depth(d_r).
-
-    Danach wird die Kinematik EINMAL bei v_r angeheftet und exakt geprüft,
-    dass die Basis-Abdeckung erhalten bleibt; sonst Rückfall auf v_lo. So
-    kostet die Beschleunigung nur ~1 statt ~7 Swept-Area-Aufbauten je Run
-    und der Plan wird nur SCHNELLER, nie langsamer (Coverage erhalten).
-
-    Lässt den Run bei der gewählten Geschwindigkeit angeheftet.
+    Run bleibt bei der gewählten Geschwindigkeit angeheftet.
     """
     if run.swept_polygon is None or v_hi <= v_lo + 1e-9:
         return v_lo
@@ -413,10 +354,8 @@ def speed_up_runs(
     phys: PhysParams,
     kerf: float,
 ) -> dict[int, float]:
-    """Hebt jeden Run coverage-erhaltend auf seine schnellste Geschw. an.
-
-    Voraussetzung: alle Runs sind bei der Basisgeschwindigkeit
-    ``phys.v_cut`` angeheftet. Returns ``run_id -> v``.
+    """Hebt jeden Run coverage-erhaltend auf seine schnellste
+    Geschwindigkeit (Runs bei v_cut angeheftet). Rückgabe run_id -> v.
     """
     speeds: dict[int, float] = {}
     for run in runs:
@@ -434,9 +373,8 @@ def speed_up_runs(
 # ---------------------------------------------------------------------------
 
 def clamp_rule_speed(phys: PhysParams, depth: float) -> float:
-    """Analytische Regelgeschwindigkeit für eine benötigte Tiefe,
-    geklemmt auf [v_cut, v_max] -- dieselbe Klemme wie Lehrer-Analytik und
-    ``fastest_safe_speed`` (Runs werden nie langsamer als v_cut gefahren).
+    """Regelgeschwindigkeit für eine Tiefe, geklemmt auf [v_cut, v_max]
+    (nie langsamer als v_cut).
     """
     v_hi = max(phys.v_max, phys.v_cut)
     return float(min(max(phys.speed_for_depth(float(depth)), phys.v_cut),
@@ -445,10 +383,10 @@ def clamp_rule_speed(phys: PhysParams, depth: float) -> float:
 
 def run_required_depth(run: CutRun, coords: np.ndarray,
                        mask: np.ndarray | None = None) -> float:
-    """Benötigte Schnitttiefe eines Runs [mm]: Abstand des konturfernsten
-    von ihm (bei Basisgeschwindigkeit) abgedeckten Gitterpunkts zur
-    Run-Kontur. Mutationsfrei (kein Attach); ``mask`` kann die bereits
-    berechnete Punktmaske des Runs sein (spart den Containment-Test)."""
+    """Benötigte Schnitttiefe [mm]: Abstand des konturfernsten abgedeckten
+    Punkts zur Run-Kontur. Ohne Attach; ``mask`` = schon berechnete
+    Punktmaske.
+    """
     if mask is None:
         if run.swept_polygon is None:
             return 0.0
@@ -466,41 +404,26 @@ def split_group_for_speed(
     phys: PhysParams,
     t_switch: float | None = None,
 ) -> tuple[list[tuple[int, int]], list[float], float]:
-    """Zeitminimale Zerlegung einer zusammenhängenden Segmentkette in
-    Blöcke mit je EINER Geschwindigkeit (DP über Kettenpositionen, O(m^2)).
+    """Zeitminimale Zerlegung einer Segmentkette in Blöcke mit je einer
+    Geschwindigkeit (DP, O(m^2)).
 
-    Ersetzt den früheren Merge-ZWANG: statt die ganze Kette mit der
-    Geschwindigkeit ihrer tiefsten Stelle zu fahren, darf sie in Blöcke
-    zerfallen, die individuell schneller fahren -- gegen den Zeitaufschlag
-    ``t_switch`` je Blockübergang (Geschwindigkeitswechsel im laufenden
-    Schnitt; KEIN Abheben, KEIN Pierce innerhalb der Kette).
+    - statt die ganze Kette mit der Geschwindigkeit der tiefsten Stelle
+      zu fahren, dürfen Blöcke schneller fahren
+    - Aufschlag ``t_switch`` je Blockübergang (kein Abheben, kein Pierce)
+    - Vollkreis-Ketten: lineare Kette ab Gruppenanfang (für alle Planer
+      gleich)
 
-    Parameters
-    ----------
-    lengths  : Schnittlänge je Kettensegment [mm] (Kettenreihenfolge)
-    depths   : benötigte Schnitttiefe je Kettensegment [mm]
-    phys     : PhysParams (Geschwindigkeitsregel + Klemmen)
-    t_switch : Aufschlag je Blockübergang [s]; None -> ``phys.t_switch``.
-               ``math.inf`` erzwingt das alte Merge-Verhalten (1 Block).
+    lengths  : Schnittlänge je Kettensegment [mm]
+    depths   : benötigte Tiefe je Kettensegment [mm]
+    t_switch : Aufschlag [s]; None -> ``phys.t_switch``; inf -> ein Block
 
-    Returns
-    -------
-    (blocks, speeds, total_time):
-      blocks     : Liste (start, ende_exklusiv) der Blöcke in Kettenindizes
-      speeds     : analytische Blockgeschwindigkeit je Block [mm/s]
-      total_time : Schnittzeit + Wechselzeiten der Kette [s] (analytisch)
+    Rückgabe (blocks, speeds, total_time):
+      blocks     : (start, ende_exklusiv) in Kettenindizes
+      speeds     : Geschwindigkeit je Block [mm/s]
+      total_time : Schnitt- + Wechselzeit der Kette [s]
 
-    Grenzfälle (Sanity-Properties, siehe tests/test_speed_split.py):
-      t_switch = inf -> 1 Block (altes Verhalten);
-      t_switch = 0   -> total == sum(len_i / v_i(d_i)) (voll gesplittet;
-                        gleich schnelle Nachbarn werden per Tie-Break zu
-                        einem Block zusammengefasst).
-
-    Vollkreis-Ketten werden als LINEARE Kette mit Anker am Gruppenanfang
-    behandelt (Blockgrenze am Anker ist immer vorhanden) -- eine bewusste,
-    für alle Planer identische Vereinfachung. Rein analytisch und
-    mutationsfrei -> billig genug für die innere B&B-Schleife, cachebar
-    je (loop_id, group).
+    Grenzfälle (tests/test_speed_split.py): t_switch = inf -> 1 Block;
+    t_switch = 0 -> sum(len_i / v_i).
     """
     m = len(lengths)
     if t_switch is None:
@@ -551,25 +474,17 @@ def split_group_for_speed(
 
 @dataclass
 class ChainedRun:
-    """Eine zusammenhängende Segmentkette als EIN Makro-Knoten.
+    """Zusammenhängende Segmentkette als ein Sequencer-Knoten.
 
-    Der ExactSequencer (Held-Karp) sieht NUR den ``macro``-Run
-    (Kettenendpunkte, Richtung frei via ``reversed()``) -- die Knotenzahl
-    bleibt also exakt die Gruppenzahl. Die Sub-Runs (DP-Blöcke) werden
-    NACH dem Sequencing in fixer Kettenreihenfolge vom gewählten Ende aus
-    ausgerollt; Übergänge zwischen Sub-Runs sind nahtlos (kein Linkweg,
-    kein Pierce, nur t_switch bei Geschwindigkeitswechsel).
+    - Held-Karp sieht nur ``macro`` (Kettenenden, Richtung frei)
+    - danach werden die Sub-Runs (DP-Blöcke) vom gewählten Ende aus
+      ausgerollt; Übergänge nahtlos (kein Link, kein Pierce, nur t_switch)
 
-    Attributes
-    ----------
-    macro    : leichter Run NUR fürs Sequencing (trägt keine Swept Area).
-    sub_runs : exakt angeheftete Sub-Runs in Kettenreihenfolge
-               (leer im Analytik-Modus des Lehrer-B&B).
-    speeds   : Geschwindigkeit je Sub-Run [mm/s].
-    cut_time / switch_time / n_switches :
-               analytische Kettenzeiten für den Analytik-Modus; im
-               exakten Modus rechnet ``build_plan_with_speeds`` die Zeiten
-               stattdessen aus den Sub-Runs.
+    macro    : leichter Run nur fürs Sequencing (ohne Swept Area)
+    sub_runs : angeheftete Sub-Runs in Kettenreihenfolge
+    speeds   : Geschwindigkeit je Sub-Run [mm/s]
+    cut_time / switch_time / n_switches : vorgerechnete Zeiten für
+               Ketten ohne Sub-Runs
     """
     macro: CutRun
     sub_runs: list[CutRun] = field(default_factory=list)
@@ -590,11 +505,8 @@ class ChainedRun:
 def _chain_macro(contour, loop_id: int, group: list[int], run_id: int,
                  tcp_start: np.ndarray, tcp_end: np.ndarray,
                  tcp_length: float) -> CutRun:
-    """Leichter Makro-Run für den Sequencer: nur Endpunkte + reversed().
-
-    Kein Attach (keine Swept Area) -- die Endpunkte kommen vom ersten/
-    letzten Sub-Run bzw. den Singleton-Runs, damit die Übergangskosten
-    des Held-Karp exakt den Endpunkten des Rollouts entsprechen.
+    """Leichter Makro-Run (nur Endpunkte, kein Attach). Endpunkte aus den
+    Sub-Runs, damit Held-Karp exakt die Übergänge des Rollouts bewertet.
     """
     loop = contour.loop_by_id(loop_id)
     first = contour.segments[group[0]]
@@ -636,25 +548,18 @@ def build_speed_chains(
     seg_mask: dict[int, np.ndarray] | None = None,
     t_switch: float | None = None,
 ) -> list[ChainedRun]:
-    """Gemeinsame, EXAKT verifizierte DP-Split-Stufe für Lehrer-Finale,
-    Automatic Planner und Surrogat (identischer Entscheidungsraum -> Dominanz).
+    """Gemeinsame, exakt geprüfte DP-Split-Stufe aller Planer (gleicher
+    Entscheidungsraum -> der Lehrer dominiert).
 
-    Je zusammenhängender Gruppe der Auswahl:
-      1. Tiefenbedarf/Länge je Kettensegment aus den Singleton-Runs
-         (bei Basisgeschwindigkeit), dann DP-Split
-         (``split_group_for_speed``).
-      2. Jeden Block exakt bei seiner Blockgeschwindigkeit anheften und
-         gegen die Singleton-Masken seiner Mitglieder prüfen
-         (``speed_up_runs``-Logik): Block verfehlt Punkte -> Rückfall auf
-         v_cut; auch dann verfehlt -> Einzelsegmente mit je einzeln
-         verifizierter Geschwindigkeit (``fastest_safe_speed``).
-      3. Makro-Run je Kette (Endpunkte des Rollouts) für den Sequencer.
+    Je zusammenhängender Gruppe:
+      1. Tiefe/Länge je Segment aus den Singleton-Runs (v_cut) -> DP-Split
+      2. jeden Block bei seiner Geschwindigkeit anheften, gegen die
+         Singleton-Masken prüfen; verfehlt -> v_cut; immer noch ->
+         Einzelsegmente mit ``fastest_safe_speed``
+      3. Makro-Run je Kette für den Sequencer
 
-    Die zugesagte Abdeckung ist die VEREINIGUNG DER SINGLETON-MASKEN der
-    Auswahl -- exakt die Masken, mit denen Lehrer-B&B und Greedy die
-    Auswahl begründen. Geschwindigkeiten können bei der Verifikation nur
-    FALLEN -> die analytische DP-Zeit ist eine Untergrenze der
-    verifizierten Zeit derselben Auswahl.
+    Zugesagte Abdeckung = Vereinigung der Singleton-Masken. Beim Prüfen
+    können Geschwindigkeiten nur fallen -> DP-Zeit ist Untergrenze.
     """
     if t_switch is None:
         t_switch = float(phys.t_switch)
@@ -703,8 +608,7 @@ def build_speed_chains(
                     sub_runs.append(run)
                     sub_speeds.append(v_cut)
                     continue
-            # Block verliert selbst bei v_cut Coverage (z.B. Ringpfad-
-            # Schließung) -> Einzelsegmente, je einzeln verifiziert.
+            # auch bei v_cut verfehlt -> Einzelsegmente, je einzeln geprüft
             for s in block:
                 single = make_group_run(contour, loop_id, [s], run_id=0)
                 attach_at_speed(single, material, phys, v_cut, kerf)
@@ -735,11 +639,9 @@ def build_speed_chains(
 
 @dataclass
 class SpeedPlan:
-    """Ergebnis von ``build_plan_with_speeds`` (variable Schnittgeschw.).
-
-    ``switch_time``/``n_switches``: Zeitaufschläge für Geschwindigkeits-
-    wechsel IM laufenden Schnitt (t_switch) --
-    separat ausgewiesen analog ``pierce_time``.
+    """Ergebnis von ``build_plan_with_speeds``; ``switch_time``/``n_switches``
+    = Geschwindigkeitswechsel im laufenden Schnitt (wie ``pierce_time``
+    separat ausgewiesen).
     """
     ordered_runs: list[CutRun] = field(default_factory=list)
     run_speeds: list[float] = field(default_factory=list)
@@ -777,23 +679,18 @@ def build_plan_with_speeds(
     drop_unlinkable: bool = True,
     t_switch: float = 0.0,
 ) -> SpeedPlan:
-    """Baut den zeitminimal geordneten Plan mit variablen Schnittgeschw.
+    """Zeitminimal geordneter Plan mit variablen Schnittgeschwindigkeiten.
 
-    ``runs`` darf ``CutRun`` und ``ChainedRun`` mischen (run_ids müssen
-    über die gesamte Liste eindeutig sein):
+    runs darf CutRun und ChainedRun mischen (run_ids eindeutig):
+      CutRun     : Geschwindigkeit aus ``run_speed``
+      ChainedRun : ein Held-Karp-Knoten je Kette, danach Sub-Runs
+                   ausrollen; ohne Sub-Runs gehen die vorgerechneten
+                   Zeiten ein
 
-      * ``CutRun``     -- wie bisher; Geschwindigkeit aus ``run_speed``.
-      * ``ChainedRun`` -- der Sequencer sieht NUR den Makro-Run (EIN
-        Held-Karp-Knoten je Kette, Richtung frei); danach werden die
-        Sub-Runs in Kettenreihenfolge vom gewählten Ende aus ausgerollt.
-        Im Analytik-Modus (keine Sub-Runs) gehen die vorgerechneten
-        Kettenzeiten (cut/switch) direkt in die Bilanz ein.
-
-    Übergänge: nahtlos (< CHAIN_TOL) -> kein Linkweg, kein Pierce, aber
-    ``t_switch`` wenn sich die Geschwindigkeit ändert; sonst Eilgang-Link
-    + Pierce wie bisher. ``LinkInfeasibleError`` wird abgefangen: nicht
-    verbindbare (Makro-)Runs werden verworfen, ihre Punkte bleiben
-    schlicht ungeschnitten (ehrliche Unerreichbarkeit).
+    - nahtloser Übergang (< CHAIN_TOL): kein Link, kein Pierce, t_switch
+      bei Geschwindigkeitswechsel; sonst Eilgang + Pierce
+    - ``LinkInfeasibleError``: nicht verbindbare Runs werden verworfen,
+      ihre Punkte bleiben ungeschnitten
     """
     plan = SpeedPlan()
     chains: dict[int, ChainedRun] = {}
@@ -807,24 +704,22 @@ def build_plan_with_speeds(
     if not macros:
         return plan
 
-    # Robust gegen infeasible Touren: isolierte Knoten iterativ verwerfen.
+    # nicht verbindbar -> schlechtesten Knoten verwerfen, neu versuchen
     while macros:
         try:
             ordered, is_opt = sequencer.order_runs(macros)
             break
         except LinkInfeasibleError:
             if not drop_unlinkable or len(macros) <= 1:
-                # Selbst ein einzelner Knoten "geht" immer (keine Übergänge).
+                # ein einzelner Knoten geht immer (keine Übergänge)
                 if len(macros) == 1:
                     ordered, is_opt = [macros[0]], True
                     break
                 return plan
             conn = _pairwise_linkable(sequencer, macros)
-            # Tie-Break: bei gleicher Partnerzahl fällt der KÜRZERE Knoten
-            # (weniger Schnittlänge ~ weniger Coverage-Verlust). Vorher
-            # fiel das listen-erste Element -- auf test_lochjson war das
-            # die AUSSENKONTUR, und es blieb nur das umschlossene Loch
-            # (9.9 % statt ~31 % Coverage).
+            # wenigste Partner fällt; Gleichstand -> der kürzere Knoten
+            # (weniger Coverage-Verlust; bei test_lochjson bleibt so die
+            # Außenkontur statt des umschlossenen Lochs)
             worst = min(macros, key=lambda r: (
                 conn[r.run_id],
                 r.tcp_length if r.tcp_length > 0 else r.length))
@@ -841,7 +736,7 @@ def build_plan_with_speeds(
     for macro in ordered:
         chain = chains.get(macro.run_id)
         if chain is not None and not chain.sub_runs:
-            # Analytik-Modus (Lehrer-B&B): Kettenzeiten vorgerechnet.
+            # Kette ohne Sub-Runs: Zeiten vorgerechnet
             plan.cut_time += chain.cut_time
             plan.switch_time += chain.switch_time
             plan.n_switches += chain.n_switches
@@ -865,8 +760,7 @@ def build_plan_with_speeds(
             if prev_end is not None:
                 gap = float(np.linalg.norm(run.tcp_start - prev_end))
                 if gap < CHAIN_TOL:
-                    # Nahtlos: Brenner bleibt an -- nur t_switch, falls
-                    # sich die Schnittgeschwindigkeit ändert.
+                    # nahtlos: Brenner bleibt an, nur t_switch bei v-Wechsel
                     needs_pierce = False
                     if (v is not None and prev_v is not None
                             and abs(v - prev_v) > 1e-9):
@@ -885,17 +779,3 @@ def build_plan_with_speeds(
     plan.total_time = (plan.cut_time + plan.travel_time
                        + plan.pierce_time + plan.switch_time)
     return plan
-
-
-# ---------------------------------------------------------------------------
-# Exakte Coverage-Verifikation gewählter Runs
-# ---------------------------------------------------------------------------
-
-def exact_coverage_mask(grid, runs: list[CutRun]) -> np.ndarray:
-    """Boolesche Maske über ``grid.coords``: von den Runs abgedeckt.
-
-    Nutzt ausschließlich die EXAKTE Swept-Area-Prüfung
-    (``compute_grid_coverage``) der bereits angehefteten Runs.
-    """
-    report = compute_grid_coverage(grid, runs)
-    return report.mask

@@ -1,23 +1,17 @@
-"""Surrogat-Modell: Segment-Auswahl-Klassifikator.
+"""Surrogat-Modell: Klassifikator für die Segmentauswahl.
 
-Ein scikit-learn ``HistGradientBoostingClassifier`` (Fallback:
-``GradientBoostingClassifier``) sagt je Segment die Wahrscheinlichkeit
-p(s) vorher, in der zeitoptimalen Auswahl des Lehrers zu liegen. Der
-Planer nutzt nur die RANGFOLGE von p(s); tau (Recall >= 0.95 auf den
-Out-of-fold-Vorhersagen) wird der Vollständigkeit halber mitgespeichert.
-
-Das Modell trägt KEINE Korrektheitsgarantie -- es entscheidet nur über
-Geschwindigkeit. Die Coverage-Garantie stellt der Planer über exakte
-Masken, Verify und Fallback sicher (siehe planner.py).
-
-Das gespeicherte Modell trägt den Parameterstempel aus ``params``
-(``label_version``, ``phys_hash``, ``params_hash``); ``load_model`` bricht
-hart ab, wenn Version oder Physik nicht zum laufenden Code passen, und
-warnt bei anderer Segmentierung/Katalog.
+- HistGradientBoostingClassifier (Fallback: GradientBoostingClassifier)
+- sagt je Segment p(s) voraus: liegt s in der optimalen Auswahl des Lehrers?
+- der Planer nutzt nur die Rangfolge von p(s); tau wird mitgespeichert
+- keine Korrektheitsgarantie nötig: die Coverage sichert der Planer
+  (exakte Masken, Verify, Fallback)
+- gespeichertes Modell trägt den Stempel aus ``params``; ``load_model``
+  bricht bei anderer Version/Physik ab, warnt bei anderer Segmentierung
 
 CLI (aus dem Elternordner von plasma_cutter):
     python -m plasma_cutter.segment_simulation.surrogate.model --train
 """
+
 from __future__ import annotations
 
 import argparse
@@ -92,9 +86,9 @@ def _sample_weight(y: np.ndarray) -> np.ndarray:
 
 def _calibrate_tau(y_true: np.ndarray, p: np.ndarray,
                    target_recall: float = TARGET_RECALL) -> float:
-    """Größtes tau, bei dem der Recall der positiven Klasse >=
-    target_recall bleibt (maximiert damit die Präzision unter der
-    Recall-Nebenbedingung)."""
+    """Größtes tau mit Recall(positiv) >= target_recall (maximale
+    Präzision unter dieser Nebenbedingung).
+    """
     y_true = np.asarray(y_true).astype(int)
     n_pos = int(y_true.sum())
     if n_pos == 0:
@@ -136,14 +130,14 @@ class SurrogateModel:
               out_dir: Path | None = None,
               holdout_family: int | None = None,
               write_importances: bool = True) -> TrainReport:
-        """Trainiert das Modell mit GroupKFold-Kalibrierung nach Formfamilie.
+        """Training mit GroupKFold nach Formfamilie.
 
-        Ablauf: Out-of-fold-Wahrscheinlichkeiten via GroupKFold ->
-        tau-Kalibrierung (Recall >= 0.95) -> Refit auf allen Daten ->
-        Permutations-Feature-Importances (als CSV gespeichert).
+        1. Out-of-fold-p(s) per GroupKFold
+        2. tau kalibrieren (Recall >= TARGET_RECALL)
+        3. Refit auf allen Daten
+        4. Permutations-Importances -> feature_importances.csv
 
-        ``holdout_family`` (Leave-one-family-out): Ist eine Familien-ID
-        gesetzt, werden ALLE Zeilen dieser Familie vor dem Training entfernt.
+        holdout_family: diese Familie vorher entfernen (Leave-one-family-out)
         """
         X = select_features(np.asarray(X, dtype=float), self.feature_names)
         y = np.asarray(y, dtype=int)
@@ -182,8 +176,8 @@ class SurrogateModel:
         self.estimator = _make_estimator(random_state)
         self.estimator.fit(X, y, sample_weight=sw)
 
-        # Permutations-Importances (modell-agnostisch); in der Lernkurve
-        # überspringbar, damit die Haupt-CSV nicht überschrieben wird.
+        # Permutations-Importances (in der Lernkurve aus, sonst würde die
+        # Haupt-CSV überschrieben)
         importances: list[tuple[str, float]] = []
         if write_importances:
             try:
@@ -230,9 +224,10 @@ class SurrogateModel:
 
 def train_model(out_dir: Path | None = None, random_state: int = 0,
                 feature_names: list[str] | None = None) -> dict:
-    """Trainiert auf ``<out_dir>/dataset.npz`` und speichert
-    ``surrogate_model.joblib`` + ``model_meta.json`` mit Herkunftsstempel
-    (label_version, k_max, seed, Instanz-/Zeilenzahl, CV-Kennzahlen)."""
+    """Trainiert auf ``<out_dir>/dataset.npz``, schreibt
+    ``surrogate_model.joblib`` + ``model_meta.json`` mit Stempel
+    (Version, Hashes, k_max, seed, Zeilenzahl, CV-Kennzahlen).
+    """
     out_dir = Path(out_dir) if out_dir else ARTIFACTS
     meta_path = out_dir / "dataset_meta.json"
     if not meta_path.exists():
@@ -271,9 +266,9 @@ def train_model(out_dir: Path | None = None, random_state: int = 0,
 
 
 def load_model(path: Path | None = None) -> SurrogateModel:
-    """Lädt das Modell; bricht hart ab, wenn LABEL_VERSION oder Physik
-    nicht zum laufenden Code passen (stale) oder der Stempel fehlt; warnt,
-    wenn nur Segmentierung/Katalog abweichen."""
+    """Lädt das Modell: Abbruch bei anderer LABEL_VERSION/Physik oder
+    fehlendem Stempel, Warnung bei anderer Segmentierung/Katalog.
+    """
     path = Path(path) if path else MODEL_PATH
     data = joblib.load(path)
     P = _params()

@@ -1,27 +1,35 @@
-"""Garantie-Test (A1): die Coverage hängt NIE am Modell.
+"""Garantie: die Coverage hängt nie am Modell.
 
-Für ALLE 6 Testgeometrien und selbst mit absichtlich schlechten Modellen
-(Zufall, "wähle nichts", "wähle alles") liefert ``surrogate_plan`` einen
-GÜLTIGEN Plan, dessen Coverage mindestens so groß ist wie die der
-klassischen Baseline. Damit gilt:
+Auf allen Testgeometrien und mit absichtlich schlechten Modellen (Zufall,
+nichts, alles) liefert ``surrogate_plan`` einen gültigen Plan mit mindestens
+der Coverage der klassischen Baseline:
 
-    surrogate_missing  subset  baseline_missing
+    surrogate_missing  Teilmenge von  baseline_missing
 
-d.h. jede verbleibende Fehlstelle ist auch für die Baseline unerreichbar
-(ehrliche Unerreichbarkeit, z.B. der vollständig umschlossene Bereich in
-``test_lochjson``). Für Vollkörper heißt das Coverage == 1.0.
+Vollkörper -> Coverage 1.0; Lücken nur, wo auch die Baseline nicht hinkommt
+(z.B. umschlossener Bereich in ``test_lochjson``).
 """
+
 from __future__ import annotations
 
 import numpy as np
 
 from plasma_cutter.segment_simulation.segments import compute_grid_coverage
 from plasma_cutter.segment_simulation.surrogate.planner import surrogate_plan
-from ._helpers import RandModel, ZeroModel, OneModel, real_geometries
+from ._helpers import (
+    RandModel, ZeroModel, OneModel, real_geometries, small_flat_bar,
+)
 
 
 def _mask(grid, result):
     return compute_grid_coverage(grid, result.runs).mask
+
+
+def test_zero_model_covers_full_body():
+    # nutzloses Modell (p(s) = 0) auf einem Vollkörper -> trotzdem 100 %
+    grid = small_flat_bar()
+    mask = _mask(grid, surrogate_plan(grid, ZeroModel()))
+    assert mask.all(), f"Coverage nur {mask.mean():.3f}"
 
 
 def _baseline_mask(grid):
