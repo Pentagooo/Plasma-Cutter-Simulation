@@ -154,7 +154,6 @@ plasma_cutter/
 ├── geometry/                  PointGrid (JSON), geometry_processor.py (Kontur-Editor-JSON -> geprüfte Geometrie)
 │   ├── Geometrie_Konturen_ungeprüft/   Rohkonturen aus dem Kontur-Editor (Eingabe)
 │   └── Geometrie_Konturen_geprüft/     sechs Testgeometrien (Ausgabe, von Simulator und Katalog genutzt)
-├── tools/                     Linux-Lauf: setup_ubuntu.sh, run_final_training.sh, collect_results.sh, ANLEITUNG_LAUF.md
 ├── requirements.txt
 └── README.md
 ```
@@ -189,21 +188,6 @@ produktive Modell; alles andere ist groß und per `.gitignore` lokal.
 | `surrogate_model.joblib`, `model_meta.json` | das produktive Modell (Taste S im Simulator), Kopie aus `runs/main_f2/`; Stempel und Trainingsdaten stehen in `model_meta.json`. Trainiert auf einem älteren Katalogstand (`SHAPE_VERSION` im Code inzwischen erhöht); beim Laden kommt deshalb nur die `params_hash`-Warnung | ja |
 | `runs/<name>/` | ein Label-/Trainingslauf: `labels/` (je Instanz ein `.npz` mit Merkmalen, Label, `T`, Lehrerzeit, Stempel), `dataset.npz`, `dataset_meta.json`, Modell, `benchmark*.{csv,md}`, `learning_curve*.{csv,md}` | nein |
 | `archive_L1/` | Stand vor dem Parameterstempel (alte `LABEL_VERSION`; lädt nicht mehr) | nein |
-
-## Abschlusslauf auf einem Linux-Rechner (`tools/`)
-
-```bash
-# im Elternordner des Klons; der Ordner muss "plasma_cutter" heißen
-plasma_cutter/tools/setup_ubuntu.sh                       # venv, Tests, Smoke-Label
-nohup plasma_cutter/tools/run_final_training.sh phase1 > logs/phase1.out 2>&1 &   # Testsätze, Hauptlauf (10 000 Instanzen, k<=21, Budget 45 h), Training, Benchmarks
-nohup plasma_cutter/tools/run_final_training.sh phase2 > logs/phase2.out 2>&1 &   # optional: Hauptlauf fortsetzen (10 h), neu trainieren
-plasma_cutter/tools/run_final_training.sh phase3                                  # nur Benchmarks + Lernkurve
-plasma_cutter/tools/collect_results.sh                                             # tar.gz zurück
-```
-
-`touch STOP` beendet einen Label-Lauf sanft (laufende Instanzen rechnen zu
-Ende). Kerne: `nproc`; die GPU wird nicht genutzt. Schritt-für-Schritt-Anleitung
-für den Ubuntu-Rechner: `tools/ANLEITUNG_LAUF.md`.
 
 ## Geometrien
 
