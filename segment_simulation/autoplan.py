@@ -4,8 +4,8 @@ Ablauf
 ------
 1. Kandidaten: jedes Segment einmal durchrechnen (Swept Area)
    -> Matrix A[p, s] = Gitterpunkt p liegt in der Swept Area von s
-2. Greedy Set Cover: bestes Verhältnis neue Punkte / Zusatzzeit (Pierce
-   entfällt beim Verketten), bis nichts Neues mehr erreichbar ist
+2. Greedy Set Cover: bestes Verhältnis neue Punkte / Zusatzzeit, bis
+   nichts Neues mehr erreichbar ist
 3. Pruning: redundante Segmente raus, teuerste zuerst
 4. Verschmelzen + Sequencer: zusammenhängende Segmente -> ein CutRun,
    Held-Karp ordnet, LinkPlanner verbindet
